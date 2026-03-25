@@ -112,7 +112,7 @@ export default function Home() {
       <Header />
       <main className="max-w-lg mx-auto px-4 py-4">
         <section className="mb-6">
-          <div className="bg-gradient-to-r from-primary to-orange-400 rounded-2xl p-5 text-white">
+          <div className="bg-gradient-to-br from-purple-400 to-blue-400 rounded-2xl p-5 text-white">
             <h2 className="text-lg font-display mb-1">요즘 뭐 먹어? 🔥</h2>
             <p className="text-sm opacity-90">
               SNS에서 바이럴 중인 음식과 판매처를 실시간으로 알려드려요
@@ -135,7 +135,7 @@ export default function Home() {
                   key={store.id}
                   className="bg-white rounded-xl p-3 border border-gray-100 flex items-center gap-3"
                 >
-                  <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center text-lg flex-shrink-0">
+                  <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-lg flex-shrink-0">
                     📍
                   </div>
                   <div className="flex-1 min-w-0">

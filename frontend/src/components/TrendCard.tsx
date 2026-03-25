@@ -30,7 +30,7 @@ export default function TrendCard({ trend }: TrendCardProps) {
         )}
         {!trend.image_url && (
           <div className="flex items-center gap-3 p-4">
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-2xl flex-shrink-0">
+            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center text-white text-2xl flex-shrink-0">
               {trend.category === "디저트"
                 ? "🍪"
                 : trend.category === "음료"

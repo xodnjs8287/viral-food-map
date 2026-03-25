@@ -56,7 +56,7 @@ export default function ReportForm() {
         <select
           value={trendId}
           onChange={(e) => setTrendId(e.target.value)}
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           required
         >
           <option value="">트렌드 선택</option>
@@ -77,7 +77,7 @@ export default function ReportForm() {
           value={storeName}
           onChange={(e) => setStoreName(e.target.value)}
           placeholder="예: 몬트쿠키 김포본점"
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           required
         />
       </div>
@@ -91,7 +91,7 @@ export default function ReportForm() {
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           placeholder="예: 서울시 강남구 역삼동 123"
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           required
         />
       </div>
@@ -105,14 +105,14 @@ export default function ReportForm() {
           onChange={(e) => setNote(e.target.value)}
           placeholder="추가 정보가 있다면 적어주세요"
           rows={2}
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 resize-none"
         />
       </div>
 
       <button
         type="submit"
         disabled={submitting}
-        className="w-full bg-primary text-white font-semibold py-3 rounded-xl transition-colors hover:bg-orange-600 disabled:opacity-50"
+        className="w-full bg-primary text-white font-semibold py-3 rounded-xl transition-colors hover:bg-purple-600 disabled:opacity-50"
       >
         {submitting ? "제보 중..." : "제보하기"}
       </button>

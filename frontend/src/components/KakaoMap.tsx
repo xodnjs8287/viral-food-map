@@ -63,7 +63,7 @@ export default function KakaoMap({
         <div style="padding:8px 12px;min-width:150px;font-size:13px;line-height:1.4;">
           <strong>${store.name}</strong><br/>
           <span style="color:#666;font-size:11px;">${store.address}</span>
-          ${store.phone ? `<br/><span style="color:#FF6B35;font-size:11px;">📞 ${store.phone}</span>` : ""}
+          ${store.phone ? `<br/><span style="color:#9B7DD4;font-size:11px;">📞 ${store.phone}</span>` : ""}
         </div>
       `;
 

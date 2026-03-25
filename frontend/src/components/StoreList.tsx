@@ -42,11 +42,11 @@ export default function StoreList({
             onStoreClick ? "cursor-pointer" : ""
           } ${
             store.id === selectedStoreId
-              ? "ring-2 ring-orange-400 border-orange-300"
+              ? "ring-2 ring-purple-400 border-purple-300"
               : "border-gray-100"
           }`}
         >
-          <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center text-lg flex-shrink-0">
+          <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-lg flex-shrink-0">
             {store.verified ? "✅" : "📍"}
           </div>
           <div className="flex-1 min-w-0">

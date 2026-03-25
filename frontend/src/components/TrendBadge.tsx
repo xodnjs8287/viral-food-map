@@ -4,7 +4,7 @@ interface TrendBadgeProps {
 
 const badges: Record<string, { label: string; color: string }> = {
   rising: { label: "🔥 급상승", color: "bg-red-100 text-red-600" },
-  active: { label: "⬆️ 인기", color: "bg-orange-100 text-orange-600" },
+  active: { label: "⬆️ 인기", color: "bg-purple-100 text-purple-600" },
   declining: { label: "⬇️ 하락", color: "bg-gray-100 text-gray-500" },
   inactive: { label: "⏸️ 종료", color: "bg-gray-100 text-gray-400" },
 };
