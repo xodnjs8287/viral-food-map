@@ -23,7 +23,7 @@ export default function TrendCard({ trend }: TrendCardProps) {
               <TrendBadge status={trend.status} />
             </div>
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-3">
-              <h3 className="font-bold text-white text-lg">{trend.name}</h3>
+              <h3 className="font-bold text-white text-lg tracking-[-0.03em]">{trend.name}</h3>
               <p className="text-xs text-white/80">{trend.category}</p>
             </div>
           </div>
@@ -39,7 +39,7 @@ export default function TrendCard({ trend }: TrendCardProps) {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-gray-900">{trend.name}</h3>
+                <h3 className="font-bold text-gray-900 tracking-[-0.03em]">{trend.name}</h3>
                 <TrendBadge status={trend.status} />
               </div>
               <p className="text-xs text-gray-400">{trend.category}</p>
