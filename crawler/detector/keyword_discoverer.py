@@ -61,7 +61,7 @@ def strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
 
 
-async def search_blogs(query: str, display: int = 100) -> list[dict]:
+async def search_blogs(query: str, display: int = 30) -> list[dict]:
     """네이버 블로그 API로 포스트 검색"""
     headers = {
         "X-Naver-Client-Id": settings.NAVER_CLIENT_ID,

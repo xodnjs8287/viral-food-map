@@ -12,13 +12,13 @@ scheduler = BackgroundScheduler()
 def run_trend_detection():
     """트렌드 탐지 작업 실행"""
     logger.info("스케줄: 트렌드 탐지 시작")
-    asyncio.get_event_loop().run_until_complete(detect_trends())
+    asyncio.run(detect_trends())
 
 
 def run_keyword_discovery():
     """키워드 자동 발굴 작업 실행"""
     logger.info("스케줄: 키워드 발굴 시작")
-    asyncio.get_event_loop().run_until_complete(discover_keywords())
+    asyncio.run(discover_keywords())
 
 
 def start_scheduler():
