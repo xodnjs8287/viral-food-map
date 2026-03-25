@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 KAKAO_SEARCH_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 NAVER_LOCAL_URL = "https://openapi.naver.com/v1/search/local.json"
+KAKAO_CATEGORY_GROUP_CODES = ("FD6", "CE7")
 
 MAJOR_CITIES = [
     {"name": "서울", "x": 126.978, "y": 37.5665, "radius": 20000},
@@ -33,45 +34,52 @@ async def find_stores_kakao(
     headers = {"Authorization": f"KakaoAK {settings.KAKAO_REST_API_KEY}"}
 
     all_stores = []
+    seen = set()
     try:
         async with httpx.AsyncClient() as client:
-            for p in range(1, 4):  # 최대 3페이지
-                params: dict = {
-                    "query": keyword,
-                    "category_group_code": "FD6,CE7",
-                    "page": p,
-                    "size": size,
-                }
-                if x is not None and y is not None:
-                    params["x"] = str(x)
-                    params["y"] = str(y)
-                    if radius:
-                        params["radius"] = str(radius)
-                        params["sort"] = "distance"
+            for category_group_code in KAKAO_CATEGORY_GROUP_CODES:
+                for p in range(1, 4):  # 최대 3페이지
+                    params: dict = {
+                        "query": keyword,
+                        "category_group_code": category_group_code,
+                        "page": p,
+                        "size": size,
+                    }
+                    if x is not None and y is not None:
+                        params["x"] = str(x)
+                        params["y"] = str(y)
+                        if radius:
+                            params["radius"] = str(radius)
+                            params["sort"] = "distance"
 
-                resp = await client.get(
-                    KAKAO_SEARCH_URL,
-                    params=params,
-                    headers=headers,
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+                    resp = await client.get(
+                        KAKAO_SEARCH_URL,
+                        params=params,
+                        headers=headers,
+                        timeout=10,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
 
-                for doc in data.get("documents", []):
-                    all_stores.append({
-                        "name": doc["place_name"],
-                        "address": doc.get("road_address_name") or doc.get("address_name", ""),
-                        "lat": float(doc["y"]),
-                        "lng": float(doc["x"]),
-                        "phone": doc.get("phone") or None,
-                        "place_url": doc.get("place_url") or None,
-                        "source": "kakao_api",
-                        "verified": True,
-                    })
+                    for doc in data.get("documents", []):
+                        store = {
+                            "name": doc["place_name"],
+                            "address": doc.get("road_address_name") or doc.get("address_name", ""),
+                            "lat": float(doc["y"]),
+                            "lng": float(doc["x"]),
+                            "phone": doc.get("phone") or None,
+                            "place_url": doc.get("place_url") or None,
+                            "source": "kakao_api",
+                            "verified": True,
+                        }
+                        key = (store["name"], store["address"])
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        all_stores.append(store)
 
-                if data.get("meta", {}).get("is_end", True):
-                    break
+                    if data.get("meta", {}).get("is_end", True):
+                        break
 
     except Exception as e:
         logger.error(f"카카오 로컬 API 오류 ({keyword}): {e}")
