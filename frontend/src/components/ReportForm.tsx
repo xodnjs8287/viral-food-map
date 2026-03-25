@@ -48,7 +48,7 @@ function searchPlaces(keyword: string): Promise<PlaceResult[]> {
           resolve([]);
         }
       },
-      { size: 5, category_group_code: "FD6,CE7" }
+      { size: 5 }
     );
   });
 }
