@@ -56,9 +56,27 @@ STOPWORDS = {
     "오늘", "내일", "어제", "매일", "주말", "평일", "기분", "선물", "생일",
     "아이", "엄마", "아빠", "남편", "아내", "다이어트", "건강", "칼로리",
     "레시피", "만들기", "재료", "방법", "과정", "완성", "준비",
+    # 이전 테스트에서 잘못 등록된 일반어
+    "길거리", "먹거리", "틱톡", "바이럴", "거리", "고민", "정리", "정도", "이유",
+    "인스타", "유튜브", "콘텐츠", "영상", "채널", "구독", "조회수",
+    "맛있는", "먹방", "먹거리", "푸드", "핫플레이스",
 }
 
 FOOD_CONTEXT_WORDS = {"맛있", "달콤", "식감", "쫀득", "바삭", "고소", "촉촉", "폭발", "중독", "존맛", "꿀맛", "핫플", "줄서", "오픈런"}
+
+# 음식 관련 접미사 — 2글자 명사라도 이 접미사로 끝나면 허용
+FOOD_SUFFIXES = (
+    "떡", "빵", "면", "밥", "탕", "전", "편", "병", "볶이", "국수", "만두", "순대",
+    "라떼", "치킨", "피자", "버거", "타코", "파이", "칩", "롤", "볼", "바",
+    "쿠키", "젤리", "푸딩", "타르트", "크림", "소스", "잼",
+    "주스", "에이드", "스무디", "티",
+)
+
+# 음식 관련 접두사 — 이 단어로 시작하는 복합명사는 높은 확률로 음식명
+FOOD_PREFIXES = (
+    "크림", "치즈", "초코", "딸기", "말차", "흑당", "꿀", "생", "왕",
+    "불", "매운", "마라", "갈릭", "버터", "소금", "땅콩", "아몬드",
+)
 
 CATEGORY_SIGNALS = {
     "디저트": {"디저트", "케이크", "빵", "쿠키", "마카롱", "달콤", "쫀득", "바삭", "크림", "초콜릿"},
@@ -102,14 +120,57 @@ async def search_blogs(query: str, display: int = 30) -> list[dict]:
         return []
 
 
+def _is_food_like(token: str, tag: str = "NNG") -> bool:
+    """음식명일 가능성이 높은 단어인지 판별"""
+    if len(token) >= 3:
+        return True
+    # 고유명사(NNP)는 2글자도 허용 (브랜드/제품명)
+    if tag == "NNP":
+        return True
+    # 2글자라도 음식 접미사로 끝나면 허용 (호떡, 약과 등)
+    return token.endswith(FOOD_SUFFIXES)
+
+
 def extract_nouns(text: str) -> list[str]:
-    """kiwipiepy로 명사 추출 (NNG, NNP)"""
+    """kiwipiepy로 명사 추출 — 복합명사 결합 + 음식명 필터링
+
+    1) 인접한 명사를 결합해 복합명사 생성 (창억+떡 → 창억떡)
+    2) 3글자 이상이거나 음식 접미사를 가진 2글자 명사만 통과
+    """
     kiwi = get_kiwi()
     result = kiwi.analyze(text)
+
+    # 1단계: 토큰 리스트에서 인접 명사 결합
+    tokens = result[0][0]  # [(token, tag, ...), ...]
     nouns = []
-    for token, tag, *_ in result[0][0]:
-        if tag in ("NNG", "NNP") and 2 <= len(token) <= 10:
+    i = 0
+    while i < len(tokens):
+        token, tag, *_ = tokens[i]
+        if tag not in ("NNG", "NNP"):
+            i += 1
+            continue
+
+        # 인접 명사 결합 시도 (최대 3개 토큰까지)
+        compound = token
+        j = i + 1
+        while j < len(tokens) and j - i < 3:
+            next_token, next_tag, *_ = tokens[j]
+            if next_tag not in ("NNG", "NNP"):
+                break
+            compound += next_token
+            j += 1
+
+        # 복합명사(2+ 토큰 결합)가 유효하면 우선 채택
+        if j > i + 1 and 3 <= len(compound) <= 12:
+            nouns.append(compound)
+            i = j
+            continue
+
+        # 단일 명사 — 음식명 필터 통과 시 채택
+        if 2 <= len(token) <= 10 and _is_food_like(token, tag):
             nouns.append(token)
+        i += 1
+
     return nouns
 
 
