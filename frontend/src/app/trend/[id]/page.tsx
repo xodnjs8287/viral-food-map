@@ -17,6 +17,17 @@ export default function TrendDetailPage() {
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+  const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {},
+        { timeout: 5000 }
+      );
+    }
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -89,6 +100,9 @@ export default function TrendDetailPage() {
 
         <KakaoMap
           stores={stores}
+          center={userLoc ?? { lat: 37.5665, lng: 126.978 }}
+          level={userLoc ? 7 : 5}
+          autoFitBounds={!userLoc}
           selectedStoreId={selectedStoreId}
           onMarkerClick={setSelectedStoreId}
         />

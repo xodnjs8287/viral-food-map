@@ -159,6 +159,18 @@ export default function KakaoMap({
     openInfoWindowRef.current = entry.infoWindow;
   }, [map, selectedStoreId]);
 
+  const moveToMyLocation = () => {
+    if (!map) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = new kakao.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
+        map.panTo(loc);
+        map.setLevel(4);
+      },
+      () => {}
+    );
+  };
+
   if (!process.env.NEXT_PUBLIC_KAKAO_MAP_KEY) {
     return (
       <div className={`${className} bg-gray-100 flex items-center justify-center`}>
@@ -167,5 +179,20 @@ export default function KakaoMap({
     );
   }
 
-  return <div ref={mapRef} className={className} />;
+  return (
+    <div className="relative">
+      <div ref={mapRef} className={className} />
+      <button
+        onClick={moveToMyLocation}
+        className="absolute bottom-3 right-3 z-10 bg-white rounded-full shadow-md px-3 py-2 flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-primary hover:shadow-lg transition-all"
+        title="내 위치로 이동"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+        </svg>
+        내 위치
+      </button>
+    </div>
+  );
 }
