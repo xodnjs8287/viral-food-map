@@ -8,6 +8,7 @@ from crawlers.instagram import get_hashtag_post_count
 from crawlers.store_finder import find_stores_nationwide
 from crawlers.image_finder import find_food_image
 from detector.keyword_manager import get_flat_keywords
+from detector.store_updater import build_store_records
 from database import upsert_trend, insert_stores, get_all_keywords
 from config import settings
 
@@ -142,13 +143,10 @@ async def detect_trends() -> dict:
         # 판매처 검색
         stores = await find_stores_nationwide(kw)
         if stores:
-            store_records = [
-                {**s, "id": str(uuid.uuid4()), "trend_id": trend_data["id"]}
-                for s in stores
-            ]
+            store_records = build_store_records(trend_data["id"], stores)
             insert_stores(store_records)
-            summary["stored_stores"] += len(stores)
-            logger.info(f"'{kw}' 판매처 {len(stores)}개 등록")
+            summary["stored_stores"] += len(store_records)
+            logger.info(f"'{kw}' 판매처 {len(store_records)}개 등록")
 
     logger.info(f"=== 트렌드 탐지 완료: {len(confirmed)}개 확정 ===")
     return summary

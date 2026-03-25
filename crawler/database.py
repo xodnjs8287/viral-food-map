@@ -45,6 +45,19 @@ def insert_stores(stores: list[dict]):
     ).execute()
 
 
+def get_stores_by_trend_ids(trend_ids: list[str]):
+    if not trend_ids:
+        return []
+    return (
+        get_client()
+        .table("stores")
+        .select("trend_id,name,address")
+        .in_("trend_id", trend_ids)
+        .execute()
+        .data
+    )
+
+
 def insert_keywords(keywords: list[dict]):
     """키워드 일괄 등록 (중복 시 무시)"""
     if not keywords:

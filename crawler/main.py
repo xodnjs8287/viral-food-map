@@ -20,6 +20,7 @@ def _build_startup_message() -> str:
         [
             "[크롤러 올라옴]",
             f"트렌드 탐지 주기: {settings.CRAWL_INTERVAL_MINUTES}분",
+            f"판매처 갱신 주기: {settings.STORE_UPDATE_INTERVAL_MINUTES}분",
             f"키워드 발굴 주기: {settings.DISCOVERY_INTERVAL_HOURS}시간",
         ]
     )
