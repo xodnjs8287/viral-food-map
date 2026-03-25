@@ -12,6 +12,13 @@ interface TrendSummary {
   stores: { count: number }[];
 }
 
+interface RecentStore {
+  id: string;
+  name: string;
+  created_at: string;
+  trends?: { name: string } | null;
+}
+
 interface DashboardStats {
   trends: { total: number; rising: number; active: number };
   stores: { total: number; verified: number; unverified: number };
@@ -22,12 +29,14 @@ interface DashboardStats {
 export default function DashboardTab() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentTrends, setRecentTrends] = useState<TrendSummary[]>([]);
+  const [recentStores, setRecentStores] = useState<RecentStore[]>([]);
+  const [lastDetected, setLastDetected] = useState<string | null>(null);
   const [crawlStatus, setCrawlStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
-      const [trendsRes, storesRes, reportsRes, keywordsRes, recentRes] =
+      const [trendsRes, storesRes, reportsRes, keywordsRes, recentRes, recentStoresRes] =
         await Promise.all([
           supabase.from("trends").select("id, status"),
           supabase.from("stores").select("id, verified"),
@@ -38,6 +47,11 @@ export default function DashboardTab() {
             .select("id, name, status, detected_at, stores(count)")
             .order("detected_at", { ascending: false })
             .limit(5),
+          supabase
+            .from("stores")
+            .select("id, name, created_at, trends(name)")
+            .order("created_at", { ascending: false })
+            .limit(10),
         ]);
 
       const trends = trendsRes.data || [];
@@ -62,7 +76,12 @@ export default function DashboardTab() {
         },
       });
 
-      setRecentTrends((recentRes.data as TrendSummary[]) || []);
+      const recentData = (recentRes.data as TrendSummary[]) || [];
+      setRecentTrends(recentData);
+      setRecentStores((recentStoresRes.data as unknown as RecentStore[]) || []);
+      if (recentData.length > 0) {
+        setLastDetected(recentData[0].detected_at);
+      }
       setLoading(false);
     };
 
@@ -135,6 +154,11 @@ export default function DashboardTab() {
             <p className="text-xs text-gray-400 mt-0.5">
               트렌드 감지 + 판매처 수집을 즉시 실행합니다
             </p>
+            {lastDetected && (
+              <p className="text-xs text-gray-400 mt-1">
+                마지막 감지: {new Date(lastDetected).toLocaleString("ko-KR")}
+              </p>
+            )}
           </div>
           <button
             onClick={triggerCrawl}
@@ -180,6 +204,32 @@ export default function DashboardTab() {
                   <span>판매처 {t.stores?.[0]?.count ?? 0}곳</span>
                   <span>{new Date(t.detected_at).toLocaleDateString("ko-KR")}</span>
                 </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+      {/* 최근 수집된 판매처 */}
+      <div>
+        <h3 className="font-semibold text-gray-900 text-sm mb-3">최근 수집된 판매처</h3>
+        <div className="flex flex-col gap-2">
+          {recentStores.length === 0 ? (
+            <p className="text-center text-gray-400 py-8">수집된 판매처가 없습니다</p>
+          ) : (
+            recentStores.map((s) => (
+              <div
+                key={s.id}
+                className="bg-white rounded-xl p-3 border border-gray-100 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="font-medium text-sm text-gray-900">{s.name}</span>
+                  <span className="text-xs text-purple-500 font-medium">
+                    {s.trends?.name}
+                  </span>
+                </div>
+                <span className="text-xs text-gray-400">
+                  {new Date(s.created_at).toLocaleString("ko-KR")}
+                </span>
               </div>
             ))
           )}
