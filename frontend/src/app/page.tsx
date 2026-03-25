@@ -172,7 +172,7 @@ export default function Home() {
           </div>
 
           {loading ? (
-            <div className="space-y-16">
+            <div className="flex flex-col gap-8">
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
@@ -187,7 +187,7 @@ export default function Home() {
               <p className="text-sm mt-1">크롤러가 열심히 찾는 중...</p>
             </div>
           ) : (
-            <div className="space-y-16">
+            <div className="flex flex-col gap-8">
               {trends.map((trend) => (
                 <TrendCard key={trend.id} trend={trend} />
               ))}
