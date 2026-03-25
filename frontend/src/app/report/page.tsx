@@ -16,6 +16,15 @@ export default function ReportPage() {
           </p>
         </div>
         <ReportForm />
+        <div className="mt-6 bg-purple-50 rounded-2xl p-5">
+          <h3 className="font-bold text-gray-800 mb-3 text-sm">제보 전 참고하세요 💡</h3>
+          <ul className="space-y-2 text-sm text-gray-500">
+            <li>✅ 정확한 매장명과 주소를 입력해주세요</li>
+            <li>✅ 관리자 검토 후 지도에 표시됩니다 (보통 24시간 이내)</li>
+            <li>✅ 이미 등록된 매장 중복 제보는 불필요해요</li>
+            <li>✅ 카카오맵에서 검색되는 매장명으로 입력하면 정확해요</li>
+          </ul>
+        </div>
       </main>
       <BottomNav />
     </>

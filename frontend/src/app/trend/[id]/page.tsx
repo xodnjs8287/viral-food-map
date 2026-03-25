@@ -42,7 +42,7 @@ export default function TrendDetailPage() {
   if (loading) {
     return (
       <>
-        <Header />
+        <Header showBack />
         <main className="max-w-lg mx-auto px-4 py-4">
           <div className="animate-pulse space-y-4">
             <div className="h-8 bg-gray-200 rounded w-1/2" />
@@ -58,7 +58,7 @@ export default function TrendDetailPage() {
   if (!trend) {
     return (
       <>
-        <Header />
+        <Header showBack />
         <main className="max-w-lg mx-auto px-4 py-12 text-center text-gray-400">
           <p className="text-4xl mb-3">😅</p>
           <p>트렌드를 찾을 수 없어요</p>
@@ -70,7 +70,7 @@ export default function TrendDetailPage() {
 
   return (
     <>
-      <Header />
+      <Header showBack />
       <main className="max-w-lg mx-auto px-4 py-4 space-y-4">
         <div>
           <div className="flex items-center gap-2 mb-1">

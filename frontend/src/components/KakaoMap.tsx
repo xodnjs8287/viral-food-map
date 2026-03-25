@@ -121,8 +121,16 @@ export default function KakaoMap({
 
     markerMapRef.current = newMarkerMap;
 
-    if (autoFitBounds && stores.length > 1) {
-      map.setBounds(bounds);
+    if (autoFitBounds) {
+      if (stores.length === 1) {
+        map.setCenter(new kakao.maps.LatLng(stores[0].lat, stores[0].lng));
+        map.setLevel(4);
+      } else {
+        map.setBounds(bounds);
+        setTimeout(() => {
+          if (map.getLevel() > 8) map.setLevel(8);
+        }, 100);
+      }
     }
 
     const clusterer = new kakao.maps.MarkerClusterer({
