@@ -75,6 +75,10 @@ async def detect_trends():
             score += 30
         elif acc > 200:
             score += 20
+        elif acc > 100:
+            score += 15
+        elif acc > 30:
+            score += 10
 
         candidate["score"] = score
         candidate["blog_count"] = blog_count

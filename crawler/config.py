@@ -11,7 +11,7 @@ class Settings:
     NAVER_CLIENT_SECRET: str = os.getenv("NAVER_CLIENT_SECRET", "")
     KAKAO_REST_API_KEY: str = os.getenv("KAKAO_REST_API_KEY", "")
 
-    TREND_THRESHOLD: float = 200.0
+    TREND_THRESHOLD: float = 30.0
     TREND_SCORE_THRESHOLD: float = 50.0
     CRAWL_INTERVAL_MINUTES: int = 30
     STORE_UPDATE_INTERVAL_HOURS: int = 2
