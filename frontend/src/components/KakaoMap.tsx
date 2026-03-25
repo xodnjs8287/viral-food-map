@@ -127,9 +127,6 @@ export default function KakaoMap({
         map.setLevel(4);
       } else {
         map.setBounds(bounds);
-        setTimeout(() => {
-          if (map.getLevel() > 8) map.setLevel(8);
-        }, 100);
       }
     }
 

@@ -114,13 +114,17 @@ export default function TrendDetailPage() {
                 getDistance(userLoc.lat, userLoc.lng, b.lat, b.lng)
               )
             : stores;
+          const nearestStore = sortedStores[0];
+          const mapCenter = nearestStore
+            ? { lat: nearestStore.lat, lng: nearestStore.lng }
+            : { lat: 37.5665, lng: 126.978 };
           return (
             <>
               <KakaoMap
                 stores={sortedStores}
-                center={{ lat: 36.5, lng: 127.8 }}
-                level={13}
-                autoFitBounds={true}
+                center={mapCenter}
+                level={5}
+                autoFitBounds={false}
                 selectedStoreId={selectedStoreId}
                 onMarkerClick={setSelectedStoreId}
               />
