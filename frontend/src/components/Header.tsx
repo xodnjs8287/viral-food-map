@@ -8,7 +8,7 @@ export default function Header() {
       <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
           <img src="/logo.png" alt="요즘뭐먹" className="w-8 h-8 rounded-full" />
-          <h1 className="text-xl font-display text-primary tracking-tight">요즘뭐먹</h1>
+          <h1 className="text-xl font-extrabold text-primary tracking-tight">요즘뭐먹</h1>
         </Link>
       </div>
     </header>

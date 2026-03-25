@@ -113,7 +113,7 @@ export default function Home() {
       <main className="max-w-lg mx-auto px-4 py-4">
         <section className="mb-6">
           <div className="bg-gradient-to-br from-purple-400 to-blue-400 rounded-2xl p-5 text-white">
-            <h2 className="text-lg font-display mb-1">요즘 뭐 먹어? 🔥</h2>
+            <h2 className="text-lg font-extrabold mb-1">요즘 뭐 먹어? 🔥</h2>
             <p className="text-sm opacity-90">
               SNS에서 바이럴 중인 음식과 판매처를 실시간으로 알려드려요
             </p>
