@@ -1,12 +1,26 @@
 "use client";
 
+import { useEffect } from "react";
 import type { Store } from "@/lib/types";
 
 interface StoreListProps {
   stores: Store[];
+  selectedStoreId?: string | null;
+  onStoreClick?: (storeId: string) => void;
 }
 
-export default function StoreList({ stores }: StoreListProps) {
+export default function StoreList({
+  stores,
+  selectedStoreId,
+  onStoreClick,
+}: StoreListProps) {
+  useEffect(() => {
+    if (!selectedStoreId) return;
+    document
+      .getElementById(`store-${selectedStoreId}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [selectedStoreId]);
+
   if (stores.length === 0) {
     return (
       <div className="text-center py-8 text-gray-400">
@@ -22,7 +36,15 @@ export default function StoreList({ stores }: StoreListProps) {
       {stores.map((store) => (
         <div
           key={store.id}
-          className="bg-white rounded-xl p-3 border border-gray-100 flex items-center gap-3"
+          id={`store-${store.id}`}
+          onClick={() => onStoreClick?.(store.id)}
+          className={`bg-white rounded-xl p-3 border flex items-center gap-3 transition-all ${
+            onStoreClick ? "cursor-pointer" : ""
+          } ${
+            store.id === selectedStoreId
+              ? "ring-2 ring-orange-400 border-orange-300"
+              : "border-gray-100"
+          }`}
         >
           <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center text-lg flex-shrink-0">
             {store.verified ? "✅" : "📍"}

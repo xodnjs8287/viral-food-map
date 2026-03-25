@@ -6,6 +6,7 @@ import type { Trend, Store } from "@/lib/types";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import TrendCard from "@/components/TrendCard";
+import InstallPrompt from "@/components/InstallPrompt";
 import Link from "next/link";
 
 function getDistance(
@@ -116,6 +117,7 @@ export default function Home() {
             <p className="text-sm opacity-90">
               SNS에서 바이럴 중인 음식과 판매처를 실시간으로 알려드려요
             </p>
+            <InstallPrompt />
           </div>
         </section>
 
@@ -169,7 +171,7 @@ export default function Home() {
           </div>
 
           {loading ? (
-            <div className="space-y-8">
+            <div className="space-y-4">
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
@@ -184,7 +186,7 @@ export default function Home() {
               <p className="text-sm mt-1">크롤러가 열심히 찾는 중...</p>
             </div>
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-4">
               {trends.map((trend) => (
                 <TrendCard key={trend.id} trend={trend} />
               ))}

@@ -16,6 +16,7 @@ export default function TrendDetailPage() {
   const [trend, setTrend] = useState<Trend | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -86,7 +87,11 @@ export default function TrendDetailPage() {
           </p>
         </div>
 
-        <KakaoMap stores={stores} />
+        <KakaoMap
+          stores={stores}
+          selectedStoreId={selectedStoreId}
+          onMarkerClick={setSelectedStoreId}
+        />
 
         <div>
           <div className="flex items-center justify-between mb-3">
@@ -98,7 +103,11 @@ export default function TrendDetailPage() {
               + 제보하기
             </Link>
           </div>
-          <StoreList stores={stores} />
+          <StoreList
+            stores={stores}
+            selectedStoreId={selectedStoreId}
+            onStoreClick={setSelectedStoreId}
+          />
         </div>
       </main>
       <BottomNav />
