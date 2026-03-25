@@ -13,9 +13,28 @@ interface PlaceResult {
   phone: string;
 }
 
-function searchPlaces(keyword: string): Promise<PlaceResult[]> {
+function ensureKakaoLoaded(): Promise<void> {
   return new Promise((resolve) => {
-    if (!window.kakao?.maps?.services || !keyword.trim()) {
+    if (window.kakao?.maps?.services) {
+      resolve();
+      return;
+    }
+    if (window.kakao?.maps) {
+      kakao.maps.load(() => resolve());
+    } else {
+      resolve();
+    }
+  });
+}
+
+function searchPlaces(keyword: string): Promise<PlaceResult[]> {
+  return new Promise(async (resolve) => {
+    if (!keyword.trim()) {
+      resolve([]);
+      return;
+    }
+    await ensureKakaoLoaded();
+    if (!window.kakao?.maps?.services) {
       resolve([]);
       return;
     }
