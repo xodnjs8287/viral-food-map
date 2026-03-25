@@ -58,37 +58,33 @@ export default function AdminPage() {
   }, []);
 
   const approveReport = async (report: ReportRow) => {
-    // 이미 stores에 있을 수 있으므로 report status만 변경
+    // report 상태를 verified로 변경
     await supabase
       .from("reports")
       .update({ status: "verified" })
       .eq("id", report.id);
 
-    // stores에서 같은 이름+주소 찾아서 verified로 변경
-    await supabase
-      .from("stores")
-      .update({ verified: true })
-      .eq("name", report.store_name)
-      .eq("address", report.address);
+    // 좌표가 있으면 stores에 삽입
+    if (report.lat && report.lng) {
+      await supabase.from("stores").insert({
+        trend_id: report.trend_id,
+        name: report.store_name,
+        address: report.address,
+        lat: report.lat,
+        lng: report.lng,
+        phone: null,
+        source: "user_report",
+        verified: true,
+      });
+    }
 
     await fetchReports();
     await fetchStores();
   };
 
   const rejectReport = async (report: ReportRow) => {
-    // report 삭제
     await supabase.from("reports").delete().eq("id", report.id);
-
-    // stores에서 같은 제보 삭제 (user_report + 같은 이름)
-    await supabase
-      .from("stores")
-      .delete()
-      .eq("name", report.store_name)
-      .eq("address", report.address)
-      .eq("source", "user_report");
-
     await fetchReports();
-    await fetchStores();
   };
 
   const deleteStore = async (id: string) => {

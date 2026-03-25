@@ -63,20 +63,6 @@ export default function ReportForm() {
       status: "pending",
     });
 
-    // 3. stores 테이블에 즉시 반영 (좌표가 있을 때만)
-    if (coords) {
-      await supabase.from("stores").insert({
-        trend_id: trendId,
-        name: storeName,
-        address,
-        lat: coords.lat,
-        lng: coords.lng,
-        phone: null,
-        source: "user_report",
-        verified: false,
-      });
-    }
-
     setSubmitting(false);
     setSubmitted(true);
     setStoreName("");
@@ -157,7 +143,7 @@ export default function ReportForm() {
 
       {submitted && (
         <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium animate-slide-up">
-          제보 완료! 지도에 바로 반영되었습니다
+          제보가 접수되었습니다! 관리자 확인 후 반영됩니다
         </div>
       )}
     </form>
