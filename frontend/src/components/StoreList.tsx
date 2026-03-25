@@ -116,15 +116,19 @@ export default function StoreList({
             >
               네이버
             </a>
-            <a
-              href={`https://www.instagram.com/explore/tags/${encodeURIComponent(store.name.replace(/\s/g, ""))}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const tag = encodeURIComponent(store.name.replace(/\s/g, ""));
+                window.location.href = `instagram://tag?name=${tag}`;
+                setTimeout(() => {
+                  window.open(`https://www.instagram.com/explore/tags/${tag}`, "_blank");
+                }, 1500);
+              }}
               className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:opacity-90 transition-opacity"
             >
               인스타
-            </a>
+            </button>
           </div>
         </div>
       ))}
