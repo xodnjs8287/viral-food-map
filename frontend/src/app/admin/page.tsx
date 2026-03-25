@@ -111,18 +111,6 @@ export default function AdminPage() {
     });
   }, []);
 
-  if (!authChecked) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-400">로딩 중...</p>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <LoginForm onLogin={setUser} />;
-  }
-
   const fetchReports = async () => {
     const { data } = await supabase
       .from("reports")
@@ -140,8 +128,21 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
+    if (!user) return;
     Promise.all([fetchReports(), fetchStores()]).then(() => setLoading(false));
-  }, []);
+  }, [user]);
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-400">로딩 중...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginForm onLogin={setUser} />;
+  }
 
   const approveReport = async (report: ReportRow) => {
     // report 상태를 verified로 변경
