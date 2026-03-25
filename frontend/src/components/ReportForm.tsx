@@ -1,36 +1,50 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Trend } from "@/lib/types";
 
-function geocodeAddress(
-  address: string
-): Promise<{ lat: number; lng: number } | null> {
+interface PlaceResult {
+  place_name: string;
+  road_address_name: string;
+  address_name: string;
+  x: string;
+  y: string;
+  phone: string;
+}
+
+function searchPlaces(keyword: string): Promise<PlaceResult[]> {
   return new Promise((resolve) => {
-    if (!window.kakao?.maps?.services) {
-      resolve(null);
+    if (!window.kakao?.maps?.services || !keyword.trim()) {
+      resolve([]);
       return;
     }
-    const geocoder = new kakao.maps.services.Geocoder();
-    geocoder.addressSearch(address, (result, status) => {
-      if (status === kakao.maps.services.Status.OK && result.length > 0) {
-        resolve({ lat: parseFloat(result[0].y), lng: parseFloat(result[0].x) });
-      } else {
-        resolve(null);
-      }
-    });
+    const ps = new kakao.maps.services.Places();
+    ps.keywordSearch(
+      keyword,
+      (result, status) => {
+        if (status === kakao.maps.services.Status.OK) {
+          resolve(result.slice(0, 5) as PlaceResult[]);
+        } else {
+          resolve([]);
+        }
+      },
+      { size: 5, category_group_code: "FD6,CE7" }
+    );
   });
 }
 
 export default function ReportForm() {
   const [trends, setTrends] = useState<Trend[]>([]);
   const [trendId, setTrendId] = useState("");
-  const [storeName, setStoreName] = useState("");
-  const [address, setAddress] = useState("");
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PlaceResult[]>([]);
+  const [selected, setSelected] = useState<PlaceResult | null>(null);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const debounceRef = useRef<NodeJS.Timeout>();
 
   useEffect(() => {
     supabase
@@ -43,30 +57,48 @@ export default function ReportForm() {
       });
   }, []);
 
+  useEffect(() => {
+    if (selected) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!query.trim() || query.length < 2) {
+      setResults([]);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      const places = await searchPlaces(query);
+      setResults(places);
+      setShowResults(true);
+    }, 300);
+  }, [query, selected]);
+
+  const handleSelect = (place: PlaceResult) => {
+    setSelected(place);
+    setQuery(place.place_name);
+    setResults([]);
+    setShowResults(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!trendId || !storeName || !address) return;
+    if (!trendId || !selected) return;
 
     setSubmitting(true);
 
-    // 1. 주소 → 좌표 변환
-    const coords = await geocodeAddress(address);
-
-    // 2. reports 테이블에 제보 기록
+    const address = selected.road_address_name || selected.address_name;
     await supabase.from("reports").insert({
       trend_id: trendId,
-      store_name: storeName,
+      store_name: selected.place_name,
       address,
-      lat: coords?.lat || null,
-      lng: coords?.lng || null,
+      lat: parseFloat(selected.y),
+      lng: parseFloat(selected.x),
       note: note || null,
       status: "pending",
     });
 
     setSubmitting(false);
     setSubmitted(true);
-    setStoreName("");
-    setAddress("");
+    setQuery("");
+    setSelected(null);
     setNote("");
     setTimeout(() => setSubmitted(false), 3000);
   };
@@ -92,32 +124,65 @@ export default function ReportForm() {
         </select>
       </div>
 
-      <div>
+      <div className="relative">
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          매장 이름
+          매장 검색
         </label>
         <input
           type="text"
-          value={storeName}
-          onChange={(e) => setStoreName(e.target.value)}
-          placeholder="예: 몬트쿠키 김포본점"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (selected) setSelected(null);
+          }}
+          onFocus={() => results.length > 0 && setShowResults(true)}
+          placeholder="매장 이름을 검색하세요"
           className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           required
         />
-      </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          주소
-        </label>
-        <input
-          type="text"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          placeholder="예: 서울시 강남구 역삼동 123"
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-          required
-        />
+        {showResults && results.length > 0 && (
+          <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+            {results.map((place, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => handleSelect(place)}
+                className="w-full px-4 py-3 text-left hover:bg-purple-50 transition-colors border-b border-gray-50 last:border-0"
+              >
+                <p className="text-sm font-medium text-gray-900">
+                  {place.place_name}
+                </p>
+                <p className="text-xs text-gray-400">
+                  {place.road_address_name || place.address_name}
+                </p>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {selected && (
+          <div className="mt-2 bg-purple-50 rounded-lg px-3 py-2 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                {selected.place_name}
+              </p>
+              <p className="text-xs text-gray-500">
+                {selected.road_address_name || selected.address_name}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelected(null);
+                setQuery("");
+              }}
+              className="text-gray-400 hover:text-gray-600 text-xs"
+            >
+              변경
+            </button>
+          </div>
+        )}
       </div>
 
       <div>
@@ -135,7 +200,7 @@ export default function ReportForm() {
 
       <button
         type="submit"
-        disabled={submitting}
+        disabled={submitting || !selected}
         className="w-full bg-primary text-white font-semibold py-3 rounded-xl transition-colors hover:bg-purple-600 disabled:opacity-50"
       >
         {submitting ? "제보 중..." : "제보하기"}

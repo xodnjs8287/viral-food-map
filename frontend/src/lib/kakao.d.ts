@@ -92,7 +92,14 @@ declare namespace kakao.maps {
         callback: (result: any[], status: any) => void
       ): void;
     }
-    const Status: { OK: string };
+    class Places {
+      keywordSearch(
+        keyword: string,
+        callback: (result: any[], status: any, pagination: any) => void,
+        options?: { size?: number; category_group_code?: string }
+      ): void;
+    }
+    const Status: { OK: string; ZERO_RESULT: string };
   }
 
   function load(callback: () => void): void;
