@@ -59,6 +59,16 @@ declare namespace kakao.maps {
     removable?: boolean;
   }
 
+  class CustomOverlay {
+    constructor(options: {
+      position: LatLng;
+      content: HTMLElement | string;
+      map?: Map;
+      zIndex?: number;
+    });
+    setMap(map: Map | null): void;
+  }
+
   class MarkerClusterer {
     constructor(options: MarkerClustererOptions);
     addMarkers(markers: Marker[]): void;

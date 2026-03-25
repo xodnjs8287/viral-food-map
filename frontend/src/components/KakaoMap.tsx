@@ -64,6 +64,18 @@ export default function KakaoMap({
     kakao.maps.event.addListener(newMap, "idle", emitBounds);
     setTimeout(emitBounds, 500);
 
+    // 현재 위치 마커 (파란 점)
+    const markerContent = document.createElement("div");
+    markerContent.innerHTML = `
+      <div style="width:16px;height:16px;background:#4A90D9;border:3px solid white;border-radius:50%;box-shadow:0 0 6px rgba(74,144,217,0.5);"></div>
+    `;
+    new kakao.maps.CustomOverlay({
+      position: new kakao.maps.LatLng(center.lat, center.lng),
+      content: markerContent,
+      map: newMap,
+      zIndex: 10,
+    });
+
     setMap(newMap);
   }, [loaded, center.lat, center.lng, level]);
 
