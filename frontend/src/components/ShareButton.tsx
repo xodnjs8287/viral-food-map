@@ -32,7 +32,6 @@ export default function ShareButton({ title, description, imageUrl, url }: Share
   const handleShare = async () => {
     const shareData = {
       title,
-      text: description ?? "요즘뭐먹에서 확인해보세요!",
       url: shareUrl,
     };
 
