@@ -15,6 +15,9 @@ class Settings:
     TREND_SCORE_THRESHOLD: float = 50.0
     CRAWL_INTERVAL_MINUTES: int = 30
     STORE_UPDATE_INTERVAL_HOURS: int = 2
+    DISCOVERY_INTERVAL_HOURS: int = 6
+    DISCOVERY_MIN_FREQUENCY: int = 5
+    DISCOVERY_MAX_NEW_KEYWORDS: int = 10
 
 
 settings = Settings()

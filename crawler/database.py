@@ -45,6 +45,15 @@ def insert_stores(stores: list[dict]):
     ).execute()
 
 
+def insert_keywords(keywords: list[dict]):
+    """키워드 일괄 등록 (중복 시 무시)"""
+    if not keywords:
+        return
+    return get_client().table("keywords").upsert(
+        keywords, on_conflict="keyword"
+    ).execute()
+
+
 def update_trend_status(trend_id: str, status: str):
     return (
         get_client()
