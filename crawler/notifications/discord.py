@@ -8,10 +8,42 @@ logger = logging.getLogger(__name__)
 DISCORD_MESSAGE_LIMIT = 2000
 
 
-def _truncate(content: str) -> str:
-    if len(content) <= DISCORD_MESSAGE_LIMIT:
-        return content
-    return content[: DISCORD_MESSAGE_LIMIT - 3] + "..."
+def _split_content(content: str) -> list[str]:
+    if not content:
+        return [""]
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_length = 0
+
+    for raw_line in content.splitlines():
+        line = raw_line or " "
+        line_length = len(line)
+
+        if line_length > DISCORD_MESSAGE_LIMIT:
+            if current:
+                chunks.append("\n".join(current))
+                current = []
+                current_length = 0
+
+            for start in range(0, line_length, DISCORD_MESSAGE_LIMIT):
+                chunks.append(line[start : start + DISCORD_MESSAGE_LIMIT])
+            continue
+
+        additional = line_length + (1 if current else 0)
+        if current and current_length + additional > DISCORD_MESSAGE_LIMIT:
+            chunks.append("\n".join(current))
+            current = [line]
+            current_length = line_length
+            continue
+
+        current.append(line)
+        current_length += additional
+
+    if current:
+        chunks.append("\n".join(current))
+
+    return chunks
 
 
 async def send_discord_message(content: str) -> bool:
@@ -21,11 +53,12 @@ async def send_discord_message(content: str) -> bool:
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                webhook_url,
-                json={"content": _truncate(content)},
-            )
-            response.raise_for_status()
+            for chunk in _split_content(content):
+                response = await client.post(
+                    webhook_url,
+                    json={"content": chunk},
+                )
+                response.raise_for_status()
         return True
     except Exception as exc:
         logger.error(f"디스코드 알림 전송 실패: {exc}")

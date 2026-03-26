@@ -6,6 +6,7 @@ from detector.trend_detector import detect_trends
 from detector.keyword_discoverer import discover_keywords
 from detector.store_updater import refresh_stores_for_active_trends
 from config import settings
+from error_reporting import report_exception_to_discord
 from notifications import send_discord_message
 
 logger = logging.getLogger(__name__)
@@ -88,8 +89,10 @@ async def run_trend_detection_job(trigger: str = "scheduler") -> dict:
         return summary
     except Exception as exc:
         logger.exception(f"{trigger} 트리거: {job_name} 실패")
-        await send_discord_message(
-            _build_job_message(job_name, trigger, "실패", error=exc)
+        await report_exception_to_discord(
+            f"{job_name} 실패",
+            exc,
+            details={"트리거": trigger},
         )
         raise
 
@@ -107,8 +110,10 @@ async def run_keyword_discovery_job(trigger: str = "scheduler") -> dict:
         return summary
     except Exception as exc:
         logger.exception(f"{trigger} 트리거: {job_name} 실패")
-        await send_discord_message(
-            _build_job_message(job_name, trigger, "실패", error=exc)
+        await report_exception_to_discord(
+            f"{job_name} 실패",
+            exc,
+            details={"트리거": trigger},
         )
         raise
 
@@ -136,8 +141,10 @@ async def run_store_update_job(trigger: str = "scheduler") -> dict:
         return summary
     except Exception as exc:
         logger.exception(f"{trigger} 트리거: {job_name} 실패")
-        await send_discord_message(
-            _build_job_message(job_name, trigger, "실패", error=exc)
+        await report_exception_to_discord(
+            f"{job_name} 실패",
+            exc,
+            details={"트리거": trigger},
         )
         raise
     finally:
@@ -202,5 +209,7 @@ def start_scheduler():
 
 def stop_scheduler():
     """스케줄러 중지"""
+    if not scheduler.running:
+        return
     scheduler.shutdown()
     logger.info("스케줄러 중지")
