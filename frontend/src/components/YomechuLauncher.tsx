@@ -156,27 +156,30 @@ export default function YomechuLauncher({
         >
           <div className="mx-auto max-w-lg px-4 pb-4">
             <div className="rounded-[28px] border border-white/80 bg-white/90 p-4 shadow-[0_18px_40px_rgba(155,125,212,0.18)]">
-              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-primary/70">
-                    Random Nearby Pick
-                  </p>
-                  <h2 className="mt-1 break-keep text-xl font-black tracking-[-0.04em] text-gray-900">
-                    요메추
-                  </h2>
-                  <p className="mt-1 break-keep text-sm leading-6 text-gray-500">
-                    {statusDescription}
-                  </p>
+              <div className="mb-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-primary/70">
+                      Random Nearby Pick
+                    </p>
+                    <h2 className="mt-1 break-keep text-xl font-black tracking-[-0.04em] text-gray-900">
+                      요메추
+                    </h2>
+                  </div>
+
+                  <div className="shrink-0 rounded-2xl bg-primary px-3 py-2 text-white shadow-lg shadow-primary/20">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/70">
+                      Pick
+                    </p>
+                    <p className="mt-1 break-keep text-sm font-bold">
+                      {selectedCount}곳 추천
+                    </p>
+                  </div>
                 </div>
 
-                <div className="self-start rounded-2xl bg-primary px-3 py-2 text-white shadow-lg shadow-primary/20">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/70">
-                    Pick
-                  </p>
-                  <p className="mt-1 break-keep text-sm font-bold">
-                    {selectedCount}곳 추천
-                  </p>
-                </div>
+                <p className="mt-3 break-keep text-sm leading-6 text-gray-500">
+                  {statusDescription}
+                </p>
               </div>
 
               <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
