@@ -22,6 +22,7 @@ from database import (
 logger = logging.getLogger(__name__)
 
 KAKAO_CATEGORY_URL = "https://dapi.kakao.com/v2/local/search/category.json"
+KAKAO_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 PAGE_SIZE = 15
 MAX_PAGES = 3
 
@@ -31,32 +32,36 @@ class YomechuNoResultsError(RuntimeError):
 
 
 CATEGORY_CONFIG = {
-    "all": {"label": "전체", "group_code": "FD6", "tokens": []},
-    "korean": {"label": "한식", "group_code": "FD6", "tokens": ["한식"]},
-    "chinese": {"label": "중식", "group_code": "FD6", "tokens": ["중식", "중국식"]},
+    "all": {"label": "전체", "group_code": "FD6", "tokens": [], "keyword": None},
+    "korean": {"label": "한식", "group_code": "FD6", "tokens": ["한식"], "keyword": "한식"},
+    "chinese": {"label": "중식", "group_code": "FD6", "tokens": ["중식", "중국식"], "keyword": "중식"},
     "japanese": {
         "label": "일식",
         "group_code": "FD6",
         "tokens": ["일식", "초밥", "우동", "라멘", "돈까스", "이자카야"],
+        "keyword": "일식",
     },
     "western": {
         "label": "양식",
         "group_code": "FD6",
         "tokens": ["양식", "이탈리안", "파스타", "스테이크", "햄버거"],
+        "keyword": "양식",
     },
-    "snack": {"label": "분식", "group_code": "FD6", "tokens": ["분식", "떡볶이", "김밥"]},
-    "chicken": {"label": "치킨", "group_code": "FD6", "tokens": ["치킨", "닭강정"]},
-    "pizza": {"label": "피자", "group_code": "FD6", "tokens": ["피자"]},
+    "snack": {"label": "분식", "group_code": "FD6", "tokens": ["분식", "떡볶이", "김밥"], "keyword": "분식"},
+    "chicken": {"label": "치킨", "group_code": "FD6", "tokens": ["치킨", "닭강정"], "keyword": "치킨"},
+    "pizza": {"label": "피자", "group_code": "FD6", "tokens": ["피자"], "keyword": "피자"},
     "asian": {
         "label": "아시안",
         "group_code": "FD6",
         "tokens": ["베트남", "태국", "인도", "동남아", "아시아"],
+        "keyword": "아시안푸드",
     },
-    "cafe-dessert": {"label": "카페/디저트", "group_code": "CE7", "tokens": []},
+    "cafe-dessert": {"label": "카페/디저트", "group_code": "CE7", "tokens": [], "keyword": "카페"},
     "pub": {
         "label": "주점",
         "group_code": "FD6",
         "tokens": ["술집", "호프", "맥주", "포차", "바", "와인", "이자카야"],
+        "keyword": "술집",
     },
 }
 
@@ -170,6 +175,48 @@ async def fetch_category_places(
                 KAKAO_CATEGORY_URL,
                 params={
                     "category_group_code": category_group_code,
+                    "x": str(lng),
+                    "y": str(lat),
+                    "radius": str(radius_m),
+                    "sort": "distance",
+                    "page": page,
+                    "size": PAGE_SIZE,
+                },
+                headers=headers,
+                timeout=10,
+            )
+            response.raise_for_status()
+            payload = response.json()
+
+            for doc in payload.get("documents", []):
+                place_id = str(doc.get("id"))
+                if not place_id or place_id in seen:
+                    continue
+                seen.add(place_id)
+                results.append(doc)
+
+            if payload.get("meta", {}).get("is_end", True):
+                break
+
+    return results
+
+
+async def fetch_keyword_places(
+    keyword: str,
+    lat: float,
+    lng: float,
+    radius_m: int,
+) -> list[dict[str, Any]]:
+    headers = {"Authorization": f"KakaoAK {settings.KAKAO_REST_API_KEY}"}
+    results: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    async with httpx.AsyncClient() as client:
+        for page in range(1, MAX_PAGES + 1):
+            response = await client.get(
+                KAKAO_KEYWORD_URL,
+                params={
+                    "query": keyword,
                     "x": str(lng),
                     "y": str(lat),
                     "radius": str(radius_m),
@@ -335,15 +382,15 @@ async def find_yomechu_candidates(
     result_count: int,
 ) -> tuple[list[dict[str, Any]], bool]:
     config = CATEGORY_CONFIG[category_slug]
-    requested = await fetch_category_places(config["group_code"], lat, lng, radius_m)
-    requested = [
-        doc
-        for doc in requested
-        if matches_category(category_slug, doc.get("category_name", ""))
-    ]
+    keyword = config.get("keyword")
+
+    if keyword:
+        requested = await fetch_keyword_places(keyword, lat, lng, radius_m)
+    else:
+        requested = await fetch_category_places(config["group_code"], lat, lng, radius_m)
 
     used_fallback = False
-    if category_slug != "all" and len(requested) == 0:
+    if len(requested) == 0:
         requested = await fetch_category_places(
             CATEGORY_CONFIG["all"]["group_code"], lat, lng, radius_m
         )
