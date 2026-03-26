@@ -40,6 +40,7 @@ export default function ReportForm({ initialTrends }: ReportFormProps) {
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submittedStoreName, setSubmittedStoreName] = useState("");
   const [showResults, setShowResults] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [trendsLoading, setTrendsLoading] = useState(initialTrends.length === 0);
@@ -138,17 +139,39 @@ export default function ReportForm({ initialTrends }: ReportFormProps) {
     setSubmitting(true);
 
     const address = selected.road_address_name || selected.address_name;
-    await supabase.from("reports").insert({
-      trend_id: trendId,
-      store_name: selected.place_name,
-      address,
-      lat: parseFloat(selected.y),
-      lng: parseFloat(selected.x),
-      note: note || null,
-      status: "pending",
-    });
+    const trendName = trends.find((t) => t.id === trendId)?.name ?? "";
+    const storeName = selected.place_name;
+
+    const { data } = await supabase
+      .from("reports")
+      .insert({
+        trend_id: trendId,
+        store_name: storeName,
+        address,
+        lat: parseFloat(selected.y),
+        lng: parseFloat(selected.x),
+        note: note || null,
+        status: "pending",
+      })
+      .select("id");
+
+    if (data?.[0]?.id) {
+      const entry = {
+        id: data[0].id,
+        store_name: storeName,
+        trend_name: trendName,
+        status: "pending",
+        created_at: new Date().toISOString(),
+      };
+      const prev = JSON.parse(localStorage.getItem("my_reports") ?? "[]");
+      localStorage.setItem(
+        "my_reports",
+        JSON.stringify([entry, ...prev].slice(0, 20))
+      );
+    }
 
     setSubmitting(false);
+    setSubmittedStoreName(storeName);
     setSubmitted(true);
     setQuery("");
     setSelected(null);
@@ -319,8 +342,8 @@ export default function ReportForm({ initialTrends }: ReportFormProps) {
       </button>
 
       {submitted && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium animate-slide-up">
-          제보가 접수되었습니다! 관리자 확인 후 반영됩니다
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium animate-slide-up whitespace-nowrap">
+          ✅ &apos;{submittedStoreName}&apos; 제보 완료! 24시간 내 지도에 반영돼요
         </div>
       )}
     </form>

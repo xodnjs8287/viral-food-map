@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
@@ -14,6 +14,42 @@ interface TrendDetailPageClientProps {
   id: string;
   initialTrend: Trend | null;
   initialStores: Store[];
+}
+
+function VolumeChart({ data }: { data: Record<string, number> }) {
+  const [open, setOpen] = useState(false);
+  const entries = Object.entries(data).sort(([a], [b]) => a.localeCompare(b));
+  const max = Math.max(...entries.map(([, v]) => v), 1);
+
+  const toggle = useCallback(() => setOpen((v) => !v), []);
+
+  if (!entries.length) return null;
+
+  return (
+    <div className="mt-1">
+      <button
+        onClick={toggle}
+        className="text-xs text-primary flex items-center gap-1"
+      >
+        📈 검색 관심도 {open ? "접기 ▲" : "보기 ▼"}
+      </button>
+      {open && (
+        <div className="mt-2 bg-gray-50 rounded-xl px-3 pt-3 pb-2">
+          <div className="flex items-end gap-1 h-14">
+            {entries.map(([date, val]) => (
+              <div key={date} className="flex flex-col items-center flex-1 gap-1">
+                <div
+                  className="w-full bg-primary rounded-t-sm opacity-70"
+                  style={{ height: `${Math.max((val / max) * 100, 4)}%` }}
+                />
+                <span className="text-[9px] text-gray-400">{date.slice(5)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function getDistance(
@@ -90,6 +126,10 @@ export default function TrendDetailPageClient({
           {initialTrend.description && (
             <p className="text-sm text-gray-500">{initialTrend.description}</p>
           )}
+          {initialTrend.search_volume_data &&
+            Object.keys(initialTrend.search_volume_data).length > 0 && (
+              <VolumeChart data={initialTrend.search_volume_data} />
+            )}
           <p className="text-xs text-gray-400 mt-1 mb-3">
             {initialTrend.detected_at &&
               `${new Date(initialTrend.detected_at).toLocaleDateString("ko-KR")} 감지`}{" "}
