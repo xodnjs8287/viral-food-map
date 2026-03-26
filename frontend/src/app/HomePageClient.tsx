@@ -34,6 +34,10 @@ interface YomechuBaseLocation {
   source: "device" | "preset";
 }
 
+interface GroupedNearbyStore extends NearbyTrendStore {
+  trend_names: string[];
+}
+
 interface HomePageClientProps {
   initialTrends: Trend[];
   verifiedStoreCount: number;
@@ -48,13 +52,51 @@ function createSessionId() {
   return `session-${Date.now()}`;
 }
 
+function formatTrendSummary(trendNames: string[]) {
+  if (trendNames.length <= 2) {
+    return trendNames.join(", ");
+  }
+
+  return `${trendNames.slice(0, 2).join(", ")} 외 ${trendNames.length - 2}개`;
+}
+
+function groupNearbyStores(stores: NearbyTrendStore[]) {
+  const grouped = new Map<string, GroupedNearbyStore>();
+
+  for (const store of stores) {
+    const key = store.place_url || `${store.name}::${store.address}`;
+    const nextTrendNames = store.trend_name ? [store.trend_name] : [];
+    const current = grouped.get(key);
+
+    if (!current) {
+      grouped.set(key, {
+        ...store,
+        trend_names: nextTrendNames,
+      });
+      continue;
+    }
+
+    grouped.set(key, {
+      ...current,
+      distance_km: Math.min(current.distance_km, store.distance_km),
+      trend_names: Array.from(
+        new Set([...current.trend_names, ...nextTrendNames])
+      ),
+    });
+  }
+
+  return Array.from(grouped.values())
+    .sort((a, b) => a.distance_km - b.distance_km)
+    .slice(0, 5);
+}
+
 export default function HomePageClient({
   initialTrends,
   verifiedStoreCount,
   lastUpdated,
 }: HomePageClientProps) {
   const [trends, setTrends] = useState<Trend[]>(initialTrends);
-  const [nearbyStores, setNearbyStores] = useState<NearbyTrendStore[]>([]);
+  const [nearbyStores, setNearbyStores] = useState<GroupedNearbyStore[]>([]);
   const [loading, setLoading] = useState(initialTrends.length === 0);
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(
@@ -187,10 +229,10 @@ export default function HomePageClient({
       const { data } = await supabase.rpc("get_nearby_trend_stores", {
         user_lat: userLoc.lat,
         user_lng: userLoc.lng,
-        result_limit: 5,
+        result_limit: 20,
       });
 
-      setNearbyStores((data as NearbyTrendStore[]) ?? []);
+      setNearbyStores(groupNearbyStores((data as NearbyTrendStore[]) ?? []));
     };
 
     fetchNearby();
@@ -439,7 +481,7 @@ export default function HomePageClient({
             <div className="space-y-2">
               {nearbyStores.map((store) => (
                 <div
-                  key={store.id}
+                  key={store.place_url || `${store.name}-${store.address}`}
                   className="bg-white rounded-xl p-3 border border-gray-100 flex items-center gap-3"
                 >
                   <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-lg flex-shrink-0">
@@ -450,13 +492,18 @@ export default function HomePageClient({
                       <h4 className="font-semibold text-sm text-gray-900 truncate">
                         {store.name}
                       </h4>
-                      {store.trend_name ? (
+                      {store.trend_names.length > 0 ? (
                         <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full flex-shrink-0">
-                          {store.trend_name}
+                          트렌드 {store.trend_names.length}개
                         </span>
                       ) : null}
                     </div>
                     <p className="text-xs text-gray-400 truncate">{store.address}</p>
+                    {store.trend_names.length > 0 ? (
+                      <p className="mt-1 text-[11px] text-primary truncate">
+                        {formatTrendSummary(store.trend_names)}
+                      </p>
+                    ) : null}
                   </div>
                   <span className="text-xs text-primary font-semibold flex-shrink-0">
                     {formatDistanceMeters(
