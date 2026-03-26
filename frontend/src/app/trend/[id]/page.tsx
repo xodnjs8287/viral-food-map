@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import KakaoSdkScripts from "@/components/KakaoSdkScripts";
 import TrendDetailPageClient from "./TrendDetailPageClient";
 import { buildMetadata, buildTrendDescription } from "@/lib/seo";
 import { getTrendDetailById } from "@/lib/trends-server";
@@ -48,10 +49,13 @@ export default async function TrendDetailPage({ params }: TrendPageProps) {
   const trendData = await getTrendDetailById(params.id);
 
   return (
-    <TrendDetailPageClient
-      id={params.id}
-      initialTrend={trendData?.trend ?? null}
-      initialStores={trendData?.stores ?? []}
-    />
+    <>
+      <KakaoSdkScripts />
+      <TrendDetailPageClient
+        id={params.id}
+        initialTrend={trendData?.trend ?? null}
+        initialStores={trendData?.stores ?? []}
+      />
+    </>
   );
 }

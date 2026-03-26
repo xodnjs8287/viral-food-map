@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import ReportPageClient from "./ReportPageClient";
+import KakaoSdkScripts from "@/components/KakaoSdkScripts";
 import { buildMetadata } from "@/lib/seo";
+import { getActiveTrends } from "@/lib/trends-server";
 
 export const metadata: Metadata = buildMetadata({
   title: "판매처 제보하기",
@@ -10,6 +12,13 @@ export const metadata: Metadata = buildMetadata({
   keywords: ["맛집 제보", "판매처 제보", "바이럴 음식 제보"],
 });
 
-export default function ReportPage() {
-  return <ReportPageClient />;
+export default async function ReportPage() {
+  const trends = await getActiveTrends();
+
+  return (
+    <>
+      <KakaoSdkScripts />
+      <ReportPageClient initialTrends={trends} />
+    </>
+  );
 }

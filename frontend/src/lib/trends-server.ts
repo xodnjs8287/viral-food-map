@@ -7,10 +7,63 @@ type TrendWithStoreCount = Trend & {
   stores?: { count: number }[] | null;
 };
 
+export interface HomePageData {
+  trends: TrendWithStoreCount[];
+  verifiedStoreCount: number;
+  lastUpdated: string | null;
+}
+
 export interface TrendDetailData {
   trend: TrendWithStoreCount;
   stores: Store[];
 }
+
+export const getActiveTrends = cache(async (): Promise<TrendWithStoreCount[]> => {
+  const supabase = createServerSupabaseClient();
+
+  if (!supabase) {
+    return [];
+  }
+
+  const { data } = await supabase
+    .from("trends")
+    .select("*, stores(count)")
+    .in("status", ["rising", "active"])
+    .order("peak_score", { ascending: false });
+
+  return (
+    data?.map((trend: any) => ({
+      ...trend,
+      store_count: trend.stores?.[0]?.count ?? 0,
+    })) ?? []
+  ) as TrendWithStoreCount[];
+});
+
+export const getHomePageData = cache(async (): Promise<HomePageData> => {
+  const supabase = createServerSupabaseClient();
+
+  if (!supabase) {
+    return {
+      trends: [],
+      verifiedStoreCount: 0,
+      lastUpdated: null,
+    };
+  }
+
+  const [trends, verifiedStoresResult] = await Promise.all([
+    getActiveTrends(),
+    supabase
+      .from("stores")
+      .select("id", { count: "exact", head: true })
+      .eq("verified", true),
+  ]);
+
+  return {
+    trends,
+    verifiedStoreCount: verifiedStoresResult.count ?? 0,
+    lastUpdated: trends[0]?.detected_at ?? null,
+  };
+});
 
 export const getTrendDetailById = cache(
   async (id: string): Promise<TrendDetailData | null> => {

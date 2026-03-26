@@ -32,22 +32,42 @@ interface NearbyStore extends Store {
   trend_name?: string;
 }
 
-export default function HomePageClient() {
-  const [trends, setTrends] = useState<Trend[]>([]);
+interface HomePageClientProps {
+  initialTrends: Trend[];
+  verifiedStoreCount: number;
+  lastUpdated: string | null;
+}
+
+export default function HomePageClient({
+  initialTrends,
+  verifiedStoreCount,
+  lastUpdated,
+}: HomePageClientProps) {
+  const [trends, setTrends] = useState<Trend[]>(initialTrends);
   const [nearbyStores, setNearbyStores] = useState<NearbyStore[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initialTrends.length === 0);
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(
     null
   );
+  const [locationStatus, setLocationStatus] = useState<
+    "idle" | "granted" | "denied" | "unsupported"
+  >("idle");
 
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) =>
-          setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => {}
+        (pos) => {
+          setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setLocationStatus("granted");
+        },
+        () => {
+          setLocationStatus("denied");
+        }
       );
+      return;
     }
+
+    setLocationStatus("unsupported");
   }, []);
 
   useEffect(() => {
@@ -109,21 +129,82 @@ export default function HomePageClient() {
     fetchNearby();
   }, [userLoc]);
 
+  const lastUpdatedLabel = lastUpdated
+    ? new Date(lastUpdated).toLocaleString("ko-KR", {
+        month: "long",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+
+  const showLocationNotice =
+    locationStatus === "denied" || locationStatus === "unsupported";
+
   return (
     <>
       <Header />
       <main className="max-w-lg mx-auto px-4 py-4">
         <section className="mb-6">
-          <div className="bg-gradient-to-br from-purple-400 to-blue-400 rounded-2xl py-6 px-6 text-white text-center">
-            <p className="text-base opacity-90 leading-relaxed">
-              SNS에서 지금 뜨는 음식,
+          <div className="bg-gradient-to-br from-purple-400 to-blue-400 rounded-2xl px-6 py-6 text-white">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-white/90">
+              <span className="rounded-full bg-white/15 px-2.5 py-1">
+                활성 트렌드 {trends.length}개
+              </span>
+              <span className="rounded-full bg-white/15 px-2.5 py-1">
+                검증 판매처 {verifiedStoreCount.toLocaleString("ko-KR")}곳
+              </span>
+            </div>
+            <p className="mt-4 text-xl font-bold leading-snug">
+              SNS에서 뜨는 음식,
               <br />
-              내 주변 판매처까지 실시간으로 🔥
+              어디서 살지 바로 찾는 지도
             </p>
+            <p className="mt-2 text-sm leading-relaxed text-white/85">
+              실시간 트렌드와 주변 판매처를 한 번에 확인하세요.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <Link
+                href="/map"
+                className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-primary shadow-sm transition-colors hover:bg-purple-50"
+              >
+                지도 바로 보기
+              </Link>
+              <Link
+                href="/report"
+                className="rounded-xl border border-white/30 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+              >
+                판매처 제보
+              </Link>
+            </div>
+            {lastUpdatedLabel && (
+              <p className="mt-4 text-xs text-white/80">
+                최근 트렌드 업데이트: {lastUpdatedLabel}
+              </p>
+            )}
           </div>
         </section>
 
         <InstallPrompt />
+
+        {showLocationNotice && (
+          <section className="mb-6">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
+              <p className="text-sm font-semibold text-amber-900">
+                위치 권한이 없어 주변 판매처를 아직 보여드리지 못하고 있습니다.
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-amber-800">
+                브라우저 위치 권한을 허용하면 가까운 판매처를 자동으로 정렬해 보여드립니다.
+              </p>
+              <Link
+                href="/map"
+                className="mt-3 inline-flex rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-950"
+              >
+                지도에서 기준 지역으로 보기
+              </Link>
+            </div>
+          </section>
+        )}
 
         {nearbyStores.length > 0 && (
           <section className="mb-6">

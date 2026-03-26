@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import HomePageClient from "./HomePageClient";
 import { buildMetadata } from "@/lib/seo";
+import { getHomePageData } from "@/lib/trends-server";
 
 export const metadata: Metadata = buildMetadata({
   title: "지금 유행하는 음식, 어디서 살까?",
@@ -10,6 +11,14 @@ export const metadata: Metadata = buildMetadata({
   keywords: ["실시간 음식 트렌드", "바이럴 음식 지도", "주변 판매처"],
 });
 
-export default function HomePage() {
-  return <HomePageClient />;
+export default async function HomePage() {
+  const homePageData = await getHomePageData();
+
+  return (
+    <HomePageClient
+      initialTrends={homePageData.trends}
+      verifiedStoreCount={homePageData.verifiedStoreCount}
+      lastUpdated={homePageData.lastUpdated}
+    />
+  );
 }

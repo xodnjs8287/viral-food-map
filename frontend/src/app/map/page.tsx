@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import MapPageClient from "./MapPageClient";
+import KakaoSdkScripts from "@/components/KakaoSdkScripts";
 import { buildMetadata } from "@/lib/seo";
+import { getActiveTrends } from "@/lib/trends-server";
 
 export const metadata: Metadata = buildMetadata({
   title: "내 주변 바이럴 음식 지도",
@@ -10,6 +12,13 @@ export const metadata: Metadata = buildMetadata({
   keywords: ["바이럴 음식 지도", "주변 판매처", "카카오맵 맛집"],
 });
 
-export default function MapPage() {
-  return <MapPageClient />;
+export default async function MapPage() {
+  const trends = await getActiveTrends();
+
+  return (
+    <>
+      <KakaoSdkScripts />
+      <MapPageClient initialTrends={trends} />
+    </>
+  );
 }

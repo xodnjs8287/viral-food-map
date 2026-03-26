@@ -3,8 +3,13 @@
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import ReportForm from "@/components/ReportForm";
+import type { Trend } from "@/lib/types";
 
-export default function ReportPageClient() {
+interface ReportPageClientProps {
+  initialTrends: Trend[];
+}
+
+export default function ReportPageClient({ initialTrends }: ReportPageClientProps) {
   return (
     <>
       <Header />
@@ -15,7 +20,7 @@ export default function ReportPageClient() {
             유행 음식을 파는 곳을 알고 계신가요? 알려주세요!
           </p>
         </div>
-        <ReportForm />
+        <ReportForm initialTrends={initialTrends} />
         <div className="mt-6 bg-purple-50 rounded-2xl p-5">
           <h3 className="font-bold text-gray-800 mb-3 text-sm">
             제보 전 참고하세요 💡
