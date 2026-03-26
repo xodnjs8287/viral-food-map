@@ -46,6 +46,10 @@ export default function MapPage() {
 
   useEffect(() => {
     if (!mapBounds) return;
+    if (mapBounds.level > 9) {
+      setStores([]);
+      return;
+    }
 
     let query = supabase
       .from("stores")
@@ -53,7 +57,8 @@ export default function MapPage() {
       .gte("lat", mapBounds.sw.lat)
       .lte("lat", mapBounds.ne.lat)
       .gte("lng", mapBounds.sw.lng)
-      .lte("lng", mapBounds.ne.lng);
+      .lte("lng", mapBounds.ne.lng)
+      .limit(300);
 
     if (selectedTrendId !== "all") {
       query = query.eq("trend_id", selectedTrendId);
@@ -116,7 +121,9 @@ export default function MapPage() {
         <div>
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-bold text-sm text-gray-900">
-              판매처 {filteredStores.length}곳
+              {mapBounds && mapBounds.level > 9
+                ? "지도를 더 가까이 확대해주세요"
+                : `판매처 ${filteredStores.length}곳`}
             </h3>
           </div>
           <div className="space-y-2">

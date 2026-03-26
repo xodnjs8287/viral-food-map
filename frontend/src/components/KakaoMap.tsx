@@ -6,6 +6,7 @@ import type { Store } from "@/lib/types";
 export interface MapBounds {
   sw: { lat: number; lng: number };
   ne: { lat: number; lng: number };
+  level: number;
 }
 
 interface KakaoMapProps {
@@ -58,6 +59,7 @@ export default function KakaoMap({
       onBoundsChange({
         sw: { lat: sw.getLat(), lng: sw.getLng() },
         ne: { lat: ne.getLat(), lng: ne.getLng() },
+        level: newMap.getLevel(),
       });
     };
 
