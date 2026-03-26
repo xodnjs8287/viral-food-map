@@ -343,7 +343,7 @@ async def find_yomechu_candidates(
     ]
 
     used_fallback = False
-    if category_slug != "all" and len(requested) < result_count:
+    if category_slug != "all" and len(requested) == 0:
         requested = await fetch_category_places(
             CATEGORY_CONFIG["all"]["group_code"], lat, lng, radius_m
         )
