@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { openExternalUrl, openInstagramTag } from "@/lib/external-links";
+import { openExternalUrl, openInstagramTag, openBaemin, openCoupangEats } from "@/lib/external-links";
 import type { Store } from "@/lib/types";
 
 interface StoreListProps {
@@ -111,34 +111,56 @@ export default function StoreList({
               {formatDistance(getDistance(userLoc.lat, userLoc.lng, store.lat, store.lng))}
             </span>
           )}
-          <div className="flex gap-1.5 flex-shrink-0">
-            {(() => {
-              const linkInfo = getStoreLinkInfo(store);
-              return (
-                <a
-                  href={linkInfo.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openExternalUrl(linkInfo.url);
-                  }}
-                  className={linkInfo.className}
-                >
-                  {linkInfo.label}
-                </a>
-              );
-            })()}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                openInstagramTag(store.name);
-              }}
-              className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:opacity-90 transition-opacity"
-            >
-              인스타
-            </button>
+          <div className="flex flex-col gap-1 flex-shrink-0">
+            <div className="flex gap-1.5">
+              {(() => {
+                const linkInfo = getStoreLinkInfo(store);
+                return (
+                  <a
+                    href={linkInfo.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openExternalUrl(linkInfo.url);
+                    }}
+                    className={linkInfo.className}
+                  >
+                    {linkInfo.label}
+                  </a>
+                );
+              })()}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openInstagramTag(store.name);
+                }}
+                className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:opacity-90 transition-opacity"
+              >
+                인스타
+              </button>
+            </div>
+            <div className="flex gap-1.5">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openBaemin(store.name);
+                }}
+                className="bg-[#2AC1BC] text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-[#25ADA8] transition-colors"
+              >
+                배민
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openCoupangEats(store.name);
+                }}
+                className="bg-[#E0115F] text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-[#C80F55] transition-colors"
+              >
+                쿠팡잇츠
+              </button>
+            </div>
           </div>
         </div>
       ))}

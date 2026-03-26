@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import KakaoMap, { type MapBounds } from "@/components/KakaoMap";
-import { openExternalUrl, openInstagramTag } from "@/lib/external-links";
+import { openExternalUrl, openInstagramTag, openBaemin, openCoupangEats } from "@/lib/external-links";
 import { supabase } from "@/lib/supabase";
 import type { Store, Trend } from "@/lib/types";
 
@@ -249,6 +249,24 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
                     >
                       인스타
                     </a>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openBaemin(store.name);
+                      }}
+                      className="bg-[#2AC1BC] text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-[#25ADA8] transition-colors"
+                    >
+                      배민
+                    </button>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openCoupangEats(store.name);
+                      }}
+                      className="bg-[#E0115F] text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-[#C80F55] transition-colors"
+                    >
+                      쿠팡잇츠
+                    </button>
                   </div>
                 </div>
               ))}

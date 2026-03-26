@@ -122,6 +122,22 @@ export function openInstagramTag(tag: string) {
   );
 }
 
+export function openBaemin(storeName: string) {
+  const encoded = encodeURIComponent(storeName);
+  openDeepLinkWithFallback(
+    `baemin://search?query=${encoded}`,
+    `https://www.baemin.com/search?query=${encoded}`
+  );
+}
+
+export function openCoupangEats(storeName: string) {
+  const encoded = encodeURIComponent(storeName);
+  openDeepLinkWithFallback(
+    `coupangeats://search?query=${encoded}`,
+    `https://www.coupangeats.com/search?query=${encoded}`
+  );
+}
+
 export function openExternalUrl(url: string) {
   const instagramTargets = getInstagramTargetsFromUrl(url);
 
