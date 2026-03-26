@@ -38,6 +38,44 @@ body {
   overflow: hidden;
 }
 
+.kakao-store-infowindow {
+  box-sizing: border-box;
+  min-width: 160px;
+  max-width: min(240px, calc(100vw - 64px));
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.kakao-store-infowindow__name,
+.kakao-store-infowindow__address,
+.kakao-store-infowindow__phone {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.kakao-store-infowindow__name {
+  color: #111827;
+  font-weight: 700;
+}
+
+.kakao-store-infowindow__address {
+  margin-top: 4px;
+  color: #666;
+  font-size: 11px;
+}
+
+.kakao-store-infowindow__phone {
+  margin-top: 4px;
+  color: #9B7DD4;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 @media (min-width: 768px) {
   .map-container {
     height: 500px;

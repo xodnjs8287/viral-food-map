@@ -20,6 +20,15 @@ interface KakaoMapProps {
   autoFitBounds?: boolean;
 }
 
+function escapeInfoWindowText(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 export default function KakaoMap({
   stores,
   center = { lat: 37.5665, lng: 126.978 },
@@ -116,12 +125,19 @@ export default function KakaoMap({
       bounds.extend(position);
 
       const marker = new kakao.maps.Marker({ position, map });
+      const storeName = escapeInfoWindowText(store.name);
+      const storeAddress = escapeInfoWindowText(store.address);
+      const storePhone = store.phone ? escapeInfoWindowText(store.phone) : null;
 
       const infoContent = `
-        <div style="padding:8px 12px;min-width:150px;font-size:13px;line-height:1.4;">
-          <strong>${store.name}</strong><br/>
-          <span style="color:#666;font-size:11px;">${store.address}</span>
-          ${store.phone ? `<br/><span style="color:#9B7DD4;font-size:11px;">📞 ${store.phone}</span>` : ""}
+        <div class="kakao-store-infowindow">
+          <strong class="kakao-store-infowindow__name">${storeName}</strong>
+          <span class="kakao-store-infowindow__address">${storeAddress}</span>
+          ${
+            storePhone
+              ? `<span class="kakao-store-infowindow__phone">📞 ${storePhone}</span>`
+              : ""
+          }
         </div>
       `;
 
