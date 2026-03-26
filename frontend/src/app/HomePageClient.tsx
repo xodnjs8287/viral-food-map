@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import BottomNav from "@/components/BottomNav";
@@ -74,13 +74,10 @@ export default function HomePageClient({
     null
   );
   const [revealOpen, setRevealOpen] = useState(false);
-  const launcherRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (launcherOpen) {
-      requestAnimationFrame(() => {
-        launcherRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [launcherOpen]);
 
@@ -330,7 +327,6 @@ export default function HomePageClient({
           </button>
         }
         bottomSlot={
-          <div ref={launcherRef}>
           <YomechuLauncher
             open={launcherOpen}
             locationStatus={locationStatus}
@@ -348,7 +344,6 @@ export default function HomePageClient({
             onRetryLocation={requestUserLocation}
             onUsePresetLocation={handleUsePresetLocation}
           />
-          </div>
         }
       />
       <main className="max-w-lg mx-auto px-4 py-4">
@@ -403,9 +398,21 @@ export default function HomePageClient({
               <p className="mt-1 text-sm leading-relaxed text-amber-800">
                 브라우저 위치 권한을 허용하면 가까운 판매처를 자동으로 정렬해 보여드립니다.
               </p>
+              <p className="mt-2 text-xs leading-5 text-amber-700">
+                위치 권한을 허용하면 주변 판매처를 자동으로 찾아드립니다.
+              </p>
               <div className="mt-3 flex gap-2">
                 <button
-                  onClick={requestUserLocation}
+                  onClick={async () => {
+                    try {
+                      const perm = await navigator.permissions?.query({ name: "geolocation" as PermissionName });
+                      if (perm?.state === "denied") {
+                        alert("위치 권한이 차단되어 있습니다.\n\n[설정 방법]\n• 브라우저: 주소창 🔒 아이콘 → 위치 → 허용\n• 앱(PWA): 기기 설정 → 앱 → 브라우저 → 위치 권한 허용\n\n변경 후 새로고침해 주세요.");
+                        return;
+                      }
+                    } catch {}
+                    requestUserLocation();
+                  }}
                   className="inline-flex rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-950"
                 >
                   위치 권한 허용하기
