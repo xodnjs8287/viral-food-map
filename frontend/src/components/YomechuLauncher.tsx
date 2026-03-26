@@ -34,31 +34,6 @@ interface YomechuLauncherProps {
   onUsePresetLocation: (preset: YomechuLocationPreset) => void;
 }
 
-function getLocationCopy(
-  status: LocationStatus,
-  locationLabel: string | null,
-  hasBaseLocation: boolean
-) {
-  if (hasBaseLocation && locationLabel) {
-    if (status === "granted") {
-      return `${locationLabel} 기준으로 근처 맛집을 추천합니다.`;
-    }
-
-    return `현재 위치 권한 없이 ${locationLabel} 기준으로 추천합니다.`;
-  }
-
-  switch (status) {
-    case "loading":
-      return "현재 위치를 확인하는 중입니다.";
-    case "denied":
-      return "위치 권한이 없어도 지도에서 직접 위치를 지정해 계속 진행할 수 있습니다.";
-    case "unsupported":
-      return "이 브라우저에서는 위치 정보를 사용할 수 없습니다. 지도에서 직접 위치를 지정하거나 빠른 지역을 선택해 주세요.";
-    default:
-      return "현재 위치 또는 직접 지정한 위치를 기준으로 근처 맛집을 추천합니다.";
-  }
-}
-
 function getSpinButtonLabel(count: YomechuResultCount, isSubmitting: boolean) {
   if (isSubmitting) {
     return "추천 후보를 고르는 중...";
@@ -101,15 +76,19 @@ export default function YomechuLauncher({
           <div className="mx-auto max-w-lg px-4 pb-4">
             <div className="rounded-[28px] border border-white/80 bg-white/90 p-4 shadow-[0_18px_40px_rgba(155,125,212,0.18)]">
               <div className="mb-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-primary/70">
-                      Random Nearby Pick
-                    </p>
-                    <h2 className="mt-1 break-keep text-xl font-black tracking-[-0.04em] text-gray-900">
-                      요메추
-                    </h2>
-                  </div>
+                <h2 className="break-keep text-lg font-black tracking-[-0.04em] text-gray-900">
+                  요메추
+                </h2>
+                <div className="mt-2 flex items-center gap-2">
+                  {locationLabel ? (
+                    <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
+                      📍 {locationLabel}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-400">
+                      📍 위치 미설정
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={onOpenLocationPicker}
@@ -118,14 +97,6 @@ export default function YomechuLauncher({
                     위치 지정하기
                   </button>
                 </div>
-                <p className="mt-2 break-keep text-sm leading-6 text-gray-500">
-                  {getLocationCopy(locationStatus, locationLabel, hasBaseLocation)}
-                </p>
-                {locationLabel ? (
-                  <p className="mt-2 inline-flex max-w-full items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                    📍 {locationLabel}
-                  </p>
-                ) : null}
               </div>
 
               <div className="mb-4 rounded-2xl bg-gray-950 px-4 py-3 text-white">

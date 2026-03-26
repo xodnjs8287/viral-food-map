@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 const KAKAO_MAPS_SCRIPT_ID = "yomechu-kakao-sdk-maps";
@@ -106,11 +106,6 @@ export default function YomechuLocationPickerModal({
   const [selectedCoords, setSelectedCoords] = useState<Coordinates>(initialCenter);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const coordinateLabel = useMemo(
-    () => `${selectedCoords.lat.toFixed(5)}, ${selectedCoords.lng.toFixed(5)}`,
-    [selectedCoords]
-  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -276,16 +271,6 @@ export default function YomechuLocationPickerModal({
 
             <div className="overflow-hidden rounded-[24px] border border-gray-100 bg-gray-50">
               <div ref={mapElementRef} className="h-72 w-full" />
-            </div>
-
-            <div className="mt-3 rounded-2xl bg-gray-50 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                SELECTED
-              </p>
-              <p className="mt-1 break-keep text-sm font-semibold text-gray-900">
-                직접 지정 위치
-              </p>
-              <p className="mt-1 text-xs text-gray-500">{coordinateLabel}</p>
             </div>
 
             {loading ? (
