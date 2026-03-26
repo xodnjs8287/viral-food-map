@@ -46,11 +46,6 @@ export default function MapPage() {
 
   useEffect(() => {
     if (!mapBounds) return;
-    if (mapBounds.level > 9) {
-      setStores([]);
-      return;
-    }
-
     let query = supabase
       .from("stores")
       .select("*, trends(name)")
@@ -121,9 +116,7 @@ export default function MapPage() {
         <div>
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-bold text-sm text-gray-900">
-              {mapBounds && mapBounds.level > 9
-                ? "지도를 더 가까이 확대해주세요"
-                : `판매처 ${filteredStores.length}곳`}
+              {`판매처 ${filteredStores.length}곳`}
             </h3>
           </div>
           <div className="space-y-2">
