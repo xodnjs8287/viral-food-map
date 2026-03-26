@@ -18,6 +18,7 @@ import type {
 interface YomechuLauncherProps {
   open: boolean;
   locationStatus: LocationStatus;
+  locationSource: "device" | "preset" | "manual" | null;
   locationLabel: string | null;
   hasBaseLocation: boolean;
   selectedRadius: number;
@@ -42,9 +43,58 @@ function getSpinButtonLabel(count: YomechuResultCount, isSubmitting: boolean) {
   return count === 1 ? "한 곳만 골라줘" : `${count}곳 추천해줘`;
 }
 
+function getLocationStatusLabel(
+  status: LocationStatus,
+  source: "device" | "preset" | "manual" | null,
+  hasBaseLocation: boolean
+) {
+  if (source === "device") {
+    return "현재 위치 설정됨";
+  }
+
+  if (hasBaseLocation) {
+    return "위치 지정 완료";
+  }
+
+  if (status === "loading") {
+    return "현재 위치 확인 중";
+  }
+
+  return "위치 지정 필요";
+}
+
+function getLocationDescription(
+  status: LocationStatus,
+  source: "device" | "preset" | "manual" | null,
+  locationLabel: string | null,
+  hasBaseLocation: boolean
+) {
+  if (source === "device") {
+    return "현재 위치를 기본으로 사용하고 있습니다. 필요하면 위치 지정하기로 바꿀 수 있습니다.";
+  }
+
+  if (hasBaseLocation) {
+    return "지정한 기준 위치를 바탕으로 근처 맛집을 추천합니다.";
+  }
+
+  switch (status) {
+    case "loading":
+      return "현재 위치를 확인하고 있습니다. 잠시만 기다려 주세요.";
+    case "denied":
+      return "현재 위치를 가져오지 못했습니다. 위치 지정하기로 기준 위치를 정하면 계속 사용할 수 있습니다.";
+    case "unsupported":
+      return "이 브라우저에서는 위치 정보를 읽을 수 없습니다. 위치 지정하기로 기준 위치를 정해 주세요.";
+    default:
+      return locationLabel
+        ? `${locationLabel} 기준으로 추천합니다.`
+        : "현재 위치를 기본으로 사용합니다. 필요하면 위치 지정하기로 바꿀 수 있습니다.";
+  }
+}
+
 export default function YomechuLauncher({
   open,
   locationStatus,
+  locationSource,
   locationLabel,
   hasBaseLocation,
   selectedRadius,
@@ -61,7 +111,18 @@ export default function YomechuLauncher({
   onUsePresetLocation,
 }: YomechuLauncherProps) {
   const canSpin = hasBaseLocation && !isSubmitting;
-  const showPresetSection = locationStatus !== "granted" || !hasBaseLocation;
+  const showPresetSection = !hasBaseLocation;
+  const statusLabel = getLocationStatusLabel(
+    locationStatus,
+    locationSource,
+    hasBaseLocation
+  );
+  const statusDescription = getLocationDescription(
+    locationStatus,
+    locationSource,
+    locationLabel,
+    hasBaseLocation
+  );
 
   return (
     <AnimatePresence initial={false}>
@@ -75,20 +136,40 @@ export default function YomechuLauncher({
         >
           <div className="mx-auto max-w-lg px-4 pb-4">
             <div className="rounded-[28px] border border-white/80 bg-white/90 p-4 shadow-[0_18px_40px_rgba(155,125,212,0.18)]">
-              <div className="mb-4">
-                <h2 className="break-keep text-lg font-black tracking-[-0.04em] text-gray-900">
-                  요메추
-                </h2>
-                <div className="mt-2 flex items-center gap-2">
-                  {locationLabel ? (
-                    <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
-                      📍 {locationLabel}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-400">
-                      📍 위치 미설정
-                    </span>
-                  )}
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-primary/70">
+                    Random Nearby Pick
+                  </p>
+                  <h2 className="mt-1 break-keep text-xl font-black tracking-[-0.04em] text-gray-900">
+                    요메추
+                  </h2>
+                  <p className="mt-1 break-keep text-sm leading-6 text-gray-500">
+                    {statusDescription}
+                  </p>
+                </div>
+
+                <div className="self-start rounded-2xl bg-primary px-3 py-2 text-white shadow-lg shadow-primary/20">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/70">
+                    Pick
+                  </p>
+                  <p className="mt-1 break-keep text-sm font-bold">
+                    {selectedCount}곳 추천
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      hasBaseLocation
+                        ? "bg-primary/10 text-primary"
+                        : "bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {statusLabel}
+                  </span>
                   <button
                     type="button"
                     onClick={onOpenLocationPicker}
@@ -97,11 +178,19 @@ export default function YomechuLauncher({
                     위치 지정하기
                   </button>
                 </div>
+                <p className="mt-2 break-keep text-xs leading-5 text-gray-500">
+                  {locationLabel
+                    ? `기준 위치: ${locationLabel}`
+                    : "기준 위치를 지정하면 원하는 지역으로 바로 추천받을 수 있습니다."}
+                </p>
               </div>
 
               <div className="mb-4 rounded-2xl bg-gray-950 px-4 py-3 text-white">
-                <p className="break-keep text-sm font-medium leading-6 text-white/90">
-                  거리, 업종, 추천 수를 고르면 근처 후보를 섞어서 바로 추천해 드립니다.
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/50">
+                  Filter
+                </p>
+                <p className="mt-1 break-keep text-sm font-medium leading-6 text-white/90">
+                  추천 수, 거리, 업종을 고르면 근처 후보를 섞어서 바로 추천해 드립니다.
                 </p>
               </div>
 
@@ -169,9 +258,26 @@ export default function YomechuLauncher({
               </div>
 
               {showPresetSection ? (
-                <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3">
-                  <p className="mb-2 text-xs font-semibold text-gray-500">빠른 지역 선택</p>
-                  <div className="flex flex-wrap gap-2">
+                <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="break-keep text-sm font-semibold text-gray-900">
+                        현재 위치를 못 가져와도 계속 사용할 수 있습니다
+                      </p>
+                      <p className="mt-1 break-keep text-sm leading-6 text-gray-500">
+                        위치 지정하기에서 직접 검색하거나 아래 빠른 지역을 선택해 기준 위치를 잡으세요.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onRetryLocation}
+                      className="shrink-0 rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600 transition-colors hover:border-primary hover:text-primary"
+                    >
+                      현재 위치 다시 확인
+                    </button>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {YOMECHU_LOCATION_PRESETS.map((preset) => {
                       const isActive = locationLabel === preset.label;
 
@@ -200,15 +306,24 @@ export default function YomechuLauncher({
                 </div>
               ) : null}
 
-              <div className="mt-4">
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
                 <button
                   type="button"
                   onClick={onSpin}
                   disabled={!canSpin}
-                  className="w-full rounded-2xl bg-gradient-to-r from-primary via-fuchsia-500 to-secondary px-4 py-3 text-sm font-black tracking-[0.02em] text-white shadow-[0_16px_32px_rgba(155,125,212,0.28)] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                  className="w-full rounded-2xl bg-gradient-to-r from-primary via-fuchsia-500 to-secondary px-4 py-3 text-sm font-black tracking-[0.02em] text-white shadow-[0_16px_32px_rgba(155,125,212,0.28)] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 sm:flex-1"
                 >
                   {getSpinButtonLabel(selectedCount, isSubmitting)}
                 </button>
+                {!hasBaseLocation ? (
+                  <button
+                    type="button"
+                    onClick={onRetryLocation}
+                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-600 transition-colors hover:border-primary hover:text-primary sm:w-auto"
+                  >
+                    현재 위치 다시 확인
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
