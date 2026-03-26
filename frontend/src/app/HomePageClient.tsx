@@ -114,12 +114,11 @@ export default function HomePageClient() {
       <Header />
       <main className="max-w-lg mx-auto px-4 py-4">
         <section className="mb-6">
-          <div className="bg-gradient-to-br from-purple-400 to-blue-400 rounded-2xl py-8 px-6 text-white text-center">
-            <h2 className="text-[44px] font-extrabold leading-tight mb-2 tracking-[-0.05em]">
-              요즘 뭐 먹어? 🔥
-            </h2>
-            <p className="text-base opacity-80">
-              SNS 바이럴 음식 · 내 주변 판매처 실시간
+          <div className="bg-gradient-to-br from-purple-400 to-blue-400 rounded-2xl py-6 px-6 text-white text-center">
+            <p className="text-base opacity-90 leading-relaxed">
+              SNS에서 지금 뜨는 음식,
+              <br />
+              내 주변 판매처까지 실시간으로 🔥
             </p>
           </div>
         </section>

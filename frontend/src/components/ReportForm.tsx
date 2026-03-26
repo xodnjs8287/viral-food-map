@@ -233,10 +233,11 @@ export default function ReportForm() {
         <label className="block text-sm font-medium text-gray-700 mb-1">
           어떤 음식인가요?
         </label>
+        <div className="relative">
         <select
           value={trendId}
           onChange={(e) => setTrendId(e.target.value)}
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+          className="w-full rounded-xl border border-gray-200 px-4 py-3 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 appearance-none"
           required
         >
           <option value="">트렌드 선택</option>
@@ -246,6 +247,10 @@ export default function ReportForm() {
             </option>
           ))}
         </select>
+        <svg className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+        </div>
       </div>
 
       <div className="relative">
