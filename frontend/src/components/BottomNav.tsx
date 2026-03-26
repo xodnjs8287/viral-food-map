@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 function HomeIcon({ active }: { active: boolean }) {
   return (
@@ -38,6 +37,21 @@ const navItems = [
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleNav = (href: string) => {
+    if (href === pathname) return;          // 같은 탭 → 무시
+    if (href === "/") {
+      router.replace("/");                  // 홈은 항상 replace (스택 쌓지 않음)
+    } else {
+      // 홈이 아닌 탭: 현재가 홈이면 push, 아니면 replace
+      if (pathname === "/") {
+        router.push(href);
+      } else {
+        router.replace(href);
+      }
+    }
+  };
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 shadow-lg">
@@ -48,16 +62,16 @@ export default function BottomNav() {
               ? pathname === "/"
               : pathname.startsWith(item.href);
           return (
-            <Link
+            <button
               key={item.href}
-              href={item.href}
+              onClick={() => handleNav(item.href)}
               className={`flex flex-col items-center px-4 py-1 rounded-lg transition-colors group ${
                 isActive ? "text-primary" : "text-gray-400 hover:text-primary"
               }`}
             >
               <item.Icon active={isActive} />
               <span className="text-xs mt-0.5 font-medium relative after:absolute after:bottom-0 after:left-0 after:w-0 after:h-px after:bg-primary after:transition-all after:duration-200 group-hover:after:w-full">{item.label}</span>
-            </Link>
+            </button>
           );
         })}
       </div>
