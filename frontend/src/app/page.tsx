@@ -90,7 +90,8 @@ export default function Home() {
     const fetchNearby = async () => {
       const { data: stores } = await supabase
         .from("stores")
-        .select("*, trends(name)");
+        .select("*, trends(name)")
+        .range(0, 4999);
 
       if (stores) {
         const withDistance = stores
