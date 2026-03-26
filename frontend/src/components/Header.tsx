@@ -25,7 +25,7 @@ export default function Header({ showBack }: HeaderProps) {
           </button>
         )}
         <Link href="/">
-          <img src="/logo-title.png" alt="요즘뭐먹" className="h-8 object-contain" />
+          <img src="/logo-title.png" alt="요즘뭐먹" className="h-9 object-contain" />
         </Link>
       </div>
     </header>
