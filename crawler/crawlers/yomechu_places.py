@@ -254,7 +254,7 @@ async def spin_yomechu(
     if category_slug not in CATEGORY_CONFIG:
         raise ValueError(f"Unsupported category: {category_slug}")
 
-    if result_count not in (1, 3, 5):
+    if result_count not in (1, 2, 3, 4, 5):
         raise ValueError(f"Unsupported result count: {result_count}")
 
     candidates, used_fallback = await find_yomechu_candidates(

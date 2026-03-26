@@ -306,7 +306,7 @@ export default function YomechuRevealModal({
                 {phase === "winner" && winners.length > 1 ? (
                   <div className="mt-5">
                     <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-white/55">
-                      추천 리스트
+                      추천 리스트 · {winners.length}곳
                     </p>
                     <div className="flex flex-col gap-2">
                       {winners.map((place, index) => (

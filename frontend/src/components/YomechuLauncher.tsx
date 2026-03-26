@@ -116,11 +116,30 @@ export default function YomechuLauncher({
                   ) : null}
                 </div>
 
-                <div className="self-start rounded-2xl bg-primary px-3 py-2 text-left text-white shadow-lg shadow-primary/20 sm:text-right">
+                <div className="self-start rounded-2xl bg-primary px-3 py-2 text-white shadow-lg shadow-primary/20">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-white/70">
                     Pick
                   </p>
-                  <p className="break-keep text-sm font-bold">{selectedCount}곳 추천</p>
+                  <p className="mt-1 break-keep text-sm font-bold">
+                    {selectedCount}곳 추천
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {YOMECHU_COUNT_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => onCountChange(option.value)}
+                        className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-all ${
+                          selectedCount === option.value
+                            ? "bg-white text-primary"
+                            : "bg-white/12 text-white hover:bg-white/20"
+                        }`}
+                        aria-pressed={selectedCount === option.value}
+                      >
+                        {option.value}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -166,26 +185,6 @@ export default function YomechuLauncher({
                           selectedCategory === option.value
                             ? "bg-primary text-white shadow-lg shadow-primary/20"
                             : "bg-primary/8 text-primary hover:bg-primary/12"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="mb-2 text-xs font-semibold text-gray-500">추천 수</p>
-                  <div className="flex flex-wrap gap-2">
-                    {YOMECHU_COUNT_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => onCountChange(option.value)}
-                        className={`rounded-full px-3 py-2 text-sm font-semibold transition-all ${
-                          selectedCount === option.value
-                            ? "bg-secondary text-white shadow-lg shadow-secondary/20"
-                            : "bg-secondary/10 text-secondary hover:bg-secondary/20"
                         }`}
                       >
                         {option.label}

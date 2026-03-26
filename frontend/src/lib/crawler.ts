@@ -29,7 +29,9 @@ export const YOMECHU_RADIUS_OPTIONS: YomechuOption<number>[] = [
 
 export const YOMECHU_COUNT_OPTIONS: YomechuOption<YomechuResultCount>[] = [
   { label: "1곳", value: 1 },
+  { label: "2곳", value: 2 },
   { label: "3곳", value: 3 },
+  { label: "4곳", value: 4 },
   { label: "5곳", value: 5 },
 ];
 

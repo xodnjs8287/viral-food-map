@@ -78,7 +78,7 @@ export type YomechuCategorySlug =
   | "cafe-dessert"
   | "pub";
 
-export type YomechuResultCount = 1 | 3 | 5;
+export type YomechuResultCount = 1 | 2 | 3 | 4 | 5;
 
 export interface YomechuOption<T extends string | number> {
   label: string;
