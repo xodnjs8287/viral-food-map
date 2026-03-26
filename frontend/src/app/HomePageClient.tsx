@@ -493,17 +493,12 @@ export default function HomePageClient({
                         {store.name}
                       </h4>
                       {store.trend_names.length > 0 ? (
-                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full flex-shrink-0">
-                          트렌드 {store.trend_names.length}개
+                        <span className="max-w-[160px] truncate rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary flex-shrink-0">
+                          {formatTrendSummary(store.trend_names)}
                         </span>
                       ) : null}
                     </div>
                     <p className="text-xs text-gray-400 truncate">{store.address}</p>
-                    {store.trend_names.length > 0 ? (
-                      <p className="mt-1 text-[11px] text-primary truncate">
-                        {formatTrendSummary(store.trend_names)}
-                      </p>
-                    ) : null}
                   </div>
                   <span className="text-xs text-primary font-semibold flex-shrink-0">
                     {formatDistanceMeters(
