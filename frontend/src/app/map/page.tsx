@@ -46,6 +46,7 @@ export default function MapPage() {
     supabase
       .from("stores")
       .select("*, trends(name)")
+      .range(0, 4999)
       .then(({ data }) => {
         if (data) setStores(data.map((s: any) => ({ ...s, trend_name: s.trends?.name })) as any);
       });
