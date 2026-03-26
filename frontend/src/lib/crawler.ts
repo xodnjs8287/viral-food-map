@@ -4,10 +4,19 @@ import type {
   YomechuSpinResponse,
 } from "./types";
 
-const CRAWLER_BASE_URL =
-  process.env.NEXT_PUBLIC_CRAWLER_BASE_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  "";
+const DEFAULT_PRODUCTION_CRAWLER_BASE_URL =
+  "https://silly-donnamarie-aiproject-41bab04f.koyeb.app";
+
+function resolveCrawlerBaseUrl() {
+  const configuredBaseUrl =
+    process.env.NEXT_PUBLIC_CRAWLER_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    DEFAULT_PRODUCTION_CRAWLER_BASE_URL;
+
+  return configuredBaseUrl.replace(/\/+$/, "");
+}
+
+const CRAWLER_BASE_URL = resolveCrawlerBaseUrl();
 
 export const YOMECHU_RADIUS_OPTIONS: YomechuOption<number>[] = [
   { label: "500m", value: 500 },
