@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import KakaoMap from "@/components/KakaoMap";
+import ScrollToTop from "@/components/ScrollToTop";
 import StoreList from "@/components/StoreList";
 import TrendBadge from "@/components/TrendBadge";
 import ShareButton from "@/components/ShareButton";
@@ -75,6 +76,7 @@ export default function TrendDetailPageClient({
   initialStores,
 }: TrendDetailPageClientProps) {
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+  const [storeQuery, setStoreQuery] = useState("");
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(
     null
   );
@@ -102,13 +104,20 @@ export default function TrendDetailPageClient({
     );
   }
 
-  const sortedStores = userLoc
-    ? [...initialStores].sort(
-        (a, b) =>
-          getDistance(userLoc.lat, userLoc.lng, a.lat, a.lng) -
-          getDistance(userLoc.lat, userLoc.lng, b.lat, b.lng)
-      )
-    : initialStores;
+  const sortedStores = useMemo(() => {
+    const sorted = userLoc
+      ? [...initialStores].sort(
+          (a, b) =>
+            getDistance(userLoc.lat, userLoc.lng, a.lat, a.lng) -
+            getDistance(userLoc.lat, userLoc.lng, b.lat, b.lng)
+        )
+      : initialStores;
+    if (!storeQuery.trim()) return sorted;
+    const q = storeQuery.trim().toLowerCase();
+    return sorted.filter(
+      (s) => s.name.toLowerCase().includes(q) || s.address.toLowerCase().includes(q)
+    );
+  }, [initialStores, userLoc, storeQuery]);
   const nearestStore = sortedStores[0];
   const mapCenter = nearestStore
     ? { lat: nearestStore.lat, lng: nearestStore.lng }
@@ -158,6 +167,17 @@ export default function TrendDetailPageClient({
               + 제보하기
             </Link>
           </div>
+          {initialStores.length > 3 && (
+            <div className="mb-3">
+              <input
+                type="text"
+                value={storeQuery}
+                onChange={(e) => setStoreQuery(e.target.value)}
+                placeholder="판매처 이름이나 주소 검색"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          )}
           <StoreList
             stores={sortedStores}
             userLoc={userLoc}
@@ -167,6 +187,7 @@ export default function TrendDetailPageClient({
         </div>
       </main>
       <BottomNav />
+      <ScrollToTop />
     </>
   );
 }

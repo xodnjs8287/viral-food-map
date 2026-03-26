@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import type { Trend } from "@/lib/types";
 import TrendBadge from "./TrendBadge";
@@ -14,10 +15,12 @@ export default function TrendCard({ trend }: TrendCardProps) {
       <div className="bg-white rounded-2xl overflow-hidden shadow-md card-hover border border-gray-100">
         {trend.image_url && (
           <div className="relative h-40 w-full">
-            <img
+            <Image
               src={trend.image_url}
               alt={trend.name}
-              className="w-full h-full object-cover"
+              fill
+              sizes="(max-width: 512px) 100vw, 512px"
+              className="object-cover"
             />
             <div className="absolute top-2 right-2">
               <TrendBadge status={trend.status} />
