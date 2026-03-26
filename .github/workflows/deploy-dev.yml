@@ -17,16 +17,19 @@ jobs:
       - linux
       - x64
       - yozmeat-dev
+    env:
+      DEPLOY_ROOT: /home/yozmeatserver/apps/viral-food-map-dev
+      CURRENT_DIR: /home/yozmeatserver/apps/viral-food-map-dev/current
+      ENV_FILE: /home/yozmeatserver/apps/viral-food-map-dev/shared/dev.env
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
 
       - name: Sync workspace to deployment directory
+        id: sync_workspace
         run: |
           set -euo pipefail
-          DEPLOY_ROOT=/home/yozmeatserver/apps/viral-food-map-dev
-          CURRENT_DIR="$DEPLOY_ROOT/current"
           mkdir -p "$CURRENT_DIR"
           rsync -a --delete \
             --exclude ".git" \
@@ -34,12 +37,9 @@ jobs:
             "$GITHUB_WORKSPACE"/ "$CURRENT_DIR"/
 
       - name: Build and start containers
+        id: deploy_containers
         run: |
           set -euo pipefail
-          DEPLOY_ROOT=/home/yozmeatserver/apps/viral-food-map-dev
-          CURRENT_DIR="$DEPLOY_ROOT/current"
-          ENV_FILE="$DEPLOY_ROOT/shared/dev.env"
-
           test -f "$ENV_FILE"
           cd "$CURRENT_DIR"
 
@@ -50,6 +50,7 @@ jobs:
             up -d --build --remove-orphans
 
       - name: Health check frontend
+        id: frontend_health
         run: |
           set -euo pipefail
           for attempt in $(seq 1 30); do
@@ -61,6 +62,7 @@ jobs:
           exit 1
 
       - name: Health check crawler
+        id: crawler_health
         run: |
           set -euo pipefail
           for attempt in $(seq 1 30); do
@@ -70,3 +72,99 @@ jobs:
             sleep 2
           done
           exit 1
+
+      - name: Notify Discord
+        if: always()
+        env:
+          OVERALL_STATUS: ${{ job.status }}
+          DEPLOY_STATUS: ${{ steps.deploy_containers.outcome }}
+          FRONTEND_STATUS: ${{ steps.frontend_health.outcome }}
+          CRAWLER_STATUS: ${{ steps.crawler_health.outcome }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+        run: |
+          set +e
+
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "Environment file not found at $ENV_FILE; skipping Discord notification."
+            exit 0
+          fi
+
+          set -a
+          . "$ENV_FILE"
+          set +a
+
+          WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL is not set; skipping Discord notification."
+            exit 0
+          fi
+
+          if [ -z "$COMMIT_MESSAGE" ]; then
+            COMMIT_MESSAGE="$(git -C "$GITHUB_WORKSPACE" log -1 --pretty=%s 2>/dev/null || true)"
+          fi
+
+          normalize_status() {
+            case "${1:-unknown}" in
+              success)
+                printf 'SUCCESS'
+                ;;
+              failure|failed)
+                printf 'FAILED'
+                ;;
+              cancelled)
+                printf 'CANCELLED'
+                ;;
+              skipped)
+                printf 'SKIPPED'
+                ;;
+              *)
+                printf '%s' "${1:-UNKNOWN}" | tr '[:lower:]' '[:upper:]'
+                ;;
+            esac
+          }
+
+          json_escape() {
+            local value="${1:-}"
+            value=${value//\\/\\\\}
+            value=${value//\"/\\\"}
+            value=${value//$'\n'/\\n}
+            value=${value//$'\r'/}
+            printf '%s' "$value"
+          }
+
+          SHORT_SHA="${COMMIT_SHA::7}"
+          OVERALL_LABEL="$(normalize_status "$OVERALL_STATUS")"
+          DEPLOY_LABEL="$(normalize_status "$DEPLOY_STATUS")"
+          FRONTEND_LABEL="$(normalize_status "$FRONTEND_STATUS")"
+          CRAWLER_LABEL="$(normalize_status "$CRAWLER_STATUS")"
+
+          MESSAGE="$(printf '%s\n' \
+            "[develop] Deployment ${OVERALL_LABEL}" \
+            "- Deploy step: ${DEPLOY_LABEL}" \
+            "- Frontend: ${FRONTEND_LABEL}" \
+            "- Crawler: ${CRAWLER_LABEL}" \
+            "- Branch: ${BRANCH_NAME}" \
+            "- Commit: ${SHORT_SHA}" \
+            "- Message: ${COMMIT_MESSAGE}" \
+            "- Actor: ${ACTOR}" \
+            "- Run: ${RUN_URL}")"
+
+          MESSAGE_LIMIT=2000
+          if [ "${#MESSAGE}" -gt "$MESSAGE_LIMIT" ]; then
+            MESSAGE="${MESSAGE:0:$((MESSAGE_LIMIT - 3))}..."
+          fi
+
+          PAYLOAD="{\"content\":\"$(json_escape "$MESSAGE")\"}"
+          HTTP_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" \
+            "$WEBHOOK_URL" || true)"
+
+          if [ -z "$HTTP_STATUS" ] || [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "Discord notification failed with status ${HTTP_STATUS:-unknown}."
+            exit 0
+          fi
