@@ -52,12 +52,8 @@ function createSessionId() {
   return `session-${Date.now()}`;
 }
 
-function formatTrendSummary(trendNames: string[]) {
-  if (trendNames.length <= 2) {
-    return trendNames.join(", ");
-  }
-
-  return `${trendNames.slice(0, 2).join(", ")} 외 ${trendNames.length - 2}개`;
+function getVisibleTrendNames(trendNames: string[]) {
+  return trendNames.slice(0, 2);
 }
 
 function groupNearbyStores(stores: NearbyTrendStore[]) {
@@ -489,16 +485,28 @@ export default function HomePageClient({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h4 className="font-semibold text-sm text-gray-900 truncate">
+                      <h4 className="min-w-0 flex-1 font-semibold text-sm text-gray-900 truncate">
                         {store.name}
                       </h4>
-                      {store.trend_names.length > 0 ? (
-                        <span className="max-w-[160px] truncate rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary flex-shrink-0">
-                          {formatTrendSummary(store.trend_names)}
-                        </span>
-                      ) : null}
                     </div>
                     <p className="text-xs text-gray-400 truncate">{store.address}</p>
+                    {store.trend_names.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {getVisibleTrendNames(store.trend_names).map((trendName) => (
+                          <span
+                            key={trendName}
+                            className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary"
+                          >
+                            {trendName}
+                          </span>
+                        ))}
+                        {store.trend_names.length > 2 ? (
+                          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                            외 {store.trend_names.length - 2}개
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                   <span className="text-xs text-primary font-semibold flex-shrink-0">
                     {formatDistanceMeters(
