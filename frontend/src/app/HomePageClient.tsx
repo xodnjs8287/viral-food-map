@@ -233,6 +233,20 @@ export default function HomePageClient({
     setRevealOpen(false);
   }, [sessionId, yomechuResult]);
 
+  const handleBackToLauncher = useCallback(() => {
+    if (yomechuResult?.spin_id && sessionId) {
+      void sendYomechuFeedback({
+        spin_id: yomechuResult.spin_id,
+        place_id: yomechuResult.winner.place_id,
+        session_id: sessionId,
+        event_type: "close",
+      });
+    }
+
+    setRevealOpen(false);
+    setLauncherOpen(true);
+  }, [sessionId, yomechuResult]);
+
   const handleReroll = useCallback(async () => {
     if (yomechuResult?.spin_id && sessionId) {
       void sendYomechuFeedback({
@@ -443,6 +457,7 @@ export default function HomePageClient({
         isLoading={yomechuLoading}
         error={yomechuError}
         result={yomechuResult}
+        onBack={handleBackToLauncher}
         onClose={handleCloseReveal}
         onReroll={handleReroll}
         onOpenPlace={handleOpenPlace}

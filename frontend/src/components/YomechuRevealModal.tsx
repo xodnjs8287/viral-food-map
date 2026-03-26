@@ -11,6 +11,7 @@ interface YomechuRevealModalProps {
   isLoading: boolean;
   error: string | null;
   result: YomechuSpinResponse | null;
+  onBack: () => void;
   onClose: () => void;
   onReroll: () => void;
   onOpenPlace: (place: YomechuPlace) => void;
@@ -40,6 +41,7 @@ export default function YomechuRevealModal({
   isLoading,
   error,
   result,
+  onBack,
   onClose,
   onReroll,
   onOpenPlace,
@@ -121,13 +123,22 @@ export default function YomechuRevealModal({
             transition={{ duration: 0.24, ease: "easeOut" }}
             className="relative w-full max-w-md overflow-hidden rounded-[32px] border border-white/20 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.18),_transparent_35%),linear-gradient(160deg,_#111827_0%,_#160f2d_55%,_#10203c_100%)] p-5 text-white shadow-[0_30px_80px_rgba(17,24,39,0.55)]"
           >
-            <button
-              type="button"
-              onClick={onClose}
-              className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/70 transition-colors hover:bg-white/15 hover:text-white"
-            >
-              닫기
-            </button>
+            <div className="absolute left-4 right-4 top-4 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={onBack}
+                className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+              >
+                뒤로가기
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+              >
+                닫기
+              </button>
+            </div>
 
             <div className="mb-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white/55">

@@ -76,9 +76,9 @@ export default function YomechuLauncher({
                 </div>
                 <div className="rounded-2xl bg-primary px-3 py-2 text-right text-white shadow-lg shadow-primary/20">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-white/70">
-                    Mode
+                    Pick
                   </p>
-                  <p className="text-sm font-bold">한 곳만</p>
+                  <p className="text-sm font-bold">한 곳 랜덤 추천</p>
                 </div>
               </div>
 
