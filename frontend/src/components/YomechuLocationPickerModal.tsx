@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
-const KAKAO_CORE_SCRIPT_ID = "yomechu-kakao-sdk-core";
 const KAKAO_MAPS_SCRIPT_ID = "yomechu-kakao-sdk-maps";
-const KAKAO_CORE_URL = "https://t1.kakaocdn.net/kakaojs/latest/kakao.min.js";
 
 type Coordinates = {
   lat: number;
@@ -83,7 +81,6 @@ function ensureKakaoMapsLoaded() {
   const mapsUrl = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoMapKey}&autoload=false&libraries=services,clusterer`;
 
   kakaoMapsPromise = (async () => {
-    await loadExternalScript(KAKAO_CORE_SCRIPT_ID, KAKAO_CORE_URL);
     await loadExternalScript(KAKAO_MAPS_SCRIPT_ID, mapsUrl);
 
     await new Promise<void>((resolve) => {
