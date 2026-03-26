@@ -42,32 +42,29 @@ export default function MapPage() {
       .then(({ data }) => {
         if (data) setTrends(data as Trend[]);
       });
-
-    supabase
-      .from("stores")
-      .select("*, trends(name)")
-      .range(0, 4999)
-      .then(({ data }) => {
-        if (data) setStores(data.map((s: any) => ({ ...s, trend_name: s.trends?.name })) as any);
-      });
   }, []);
 
-  const trendFiltered =
-    selectedTrendId === "all"
-      ? stores
-      : stores.filter((s) => s.trend_id === selectedTrendId);
+  useEffect(() => {
+    if (!mapBounds) return;
 
-  const filteredStores = mapBounds
-    ? trendFiltered.filter(
-        (s) =>
-          s.lat >= mapBounds.sw.lat &&
-          s.lat <= mapBounds.ne.lat &&
-          s.lng >= mapBounds.sw.lng &&
-          s.lng <= mapBounds.ne.lng
-      )
-    : trendFiltered;
+    let query = supabase
+      .from("stores")
+      .select("*, trends(name)")
+      .gte("lat", mapBounds.sw.lat)
+      .lte("lat", mapBounds.ne.lat)
+      .gte("lng", mapBounds.sw.lng)
+      .lte("lng", mapBounds.ne.lng);
 
-  const trendMap = new Map(trends.map((t) => [t.id, t.name]));
+    if (selectedTrendId !== "all") {
+      query = query.eq("trend_id", selectedTrendId);
+    }
+
+    query.then(({ data }) => {
+      if (data) setStores(data.map((s: any) => ({ ...s, trend_name: s.trends?.name })) as any);
+    });
+  }, [mapBounds, selectedTrendId]);
+
+  const filteredStores = stores;
 
   return (
     <>
@@ -101,7 +98,7 @@ export default function MapPage() {
 
         {locReady && userLoc ? (
           <KakaoMap
-            stores={trendFiltered}
+            stores={stores}
             center={userLoc}
             level={7}
             className="map-container !h-[60vh]"
