@@ -9,6 +9,7 @@ from error_reporting import install_recent_logs_handler, report_exception_to_dis
 from notifications import send_discord_message
 from routers.trends import router as trends_router
 from routers.stores import router as stores_router
+from routers.yomechu import router as yomechu_router
 from scheduler.jobs import run_store_update_job, start_scheduler, stop_scheduler
 
 logging.basicConfig(
@@ -83,6 +84,7 @@ app.add_middleware(
 
 app.include_router(trends_router)
 app.include_router(stores_router)
+app.include_router(yomechu_router)
 
 
 @app.exception_handler(Exception)

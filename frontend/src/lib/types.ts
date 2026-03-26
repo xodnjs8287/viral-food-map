@@ -57,3 +57,47 @@ export interface AnalyticsSummary {
   hourly_distribution: { hour: number; view_count: number }[] | null;
   daily_views: { date: string; view_count: number; unique_count: number }[] | null;
 }
+
+export type LocationStatus =
+  | "idle"
+  | "loading"
+  | "granted"
+  | "denied"
+  | "unsupported";
+
+export type YomechuCategorySlug =
+  | "all"
+  | "korean"
+  | "chinese"
+  | "japanese"
+  | "western"
+  | "snack"
+  | "chicken"
+  | "pizza"
+  | "asian"
+  | "cafe-dessert"
+  | "pub";
+
+export interface YomechuOption<T extends string | number> {
+  label: string;
+  value: T;
+}
+
+export interface YomechuPlace {
+  place_id: string;
+  name: string;
+  address: string;
+  category_label: string;
+  distance_m: number;
+  rating: number | null;
+  trend_names: string[];
+  place_url: string;
+}
+
+export interface YomechuSpinResponse {
+  spin_id: string | null;
+  pool_size: number;
+  used_fallback: boolean;
+  reel: YomechuPlace[];
+  winner: YomechuPlace;
+}

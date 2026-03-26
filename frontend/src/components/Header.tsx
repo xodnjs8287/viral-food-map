@@ -1,13 +1,16 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 interface HeaderProps {
   showBack?: boolean;
+  rightSlot?: ReactNode;
+  bottomSlot?: ReactNode;
 }
 
-export default function Header({ showBack }: HeaderProps) {
+export default function Header({ showBack, rightSlot, bottomSlot }: HeaderProps) {
   const router = useRouter();
 
   return (
@@ -27,7 +30,9 @@ export default function Header({ showBack }: HeaderProps) {
         <Link href="/">
           <img src="/logo-title.png" alt="요즘뭐먹" className="h-11 object-contain" />
         </Link>
+        {rightSlot ? <div className="absolute right-4">{rightSlot}</div> : null}
       </div>
+      {bottomSlot}
     </header>
   );
 }

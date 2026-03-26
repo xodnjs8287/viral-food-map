@@ -1,14 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import TrendCard from "@/components/TrendCard";
 import InstallPrompt from "@/components/InstallPrompt";
 import Footer from "@/components/Footer";
+import YomechuLauncher from "@/components/YomechuLauncher";
+import YomechuRevealModal from "@/components/YomechuRevealModal";
+import {
+  fetchYomechuSpin,
+  sendYomechuFeedback,
+} from "@/lib/crawler";
 import { supabase } from "@/lib/supabase";
-import type { Trend, Store } from "@/lib/types";
+import type {
+  LocationStatus,
+  Trend,
+  Store,
+  YomechuCategorySlug,
+  YomechuPlace,
+  YomechuSpinResponse,
+} from "@/lib/types";
 
 function getDistance(
   lat1: number,
@@ -38,6 +51,14 @@ interface HomePageClientProps {
   lastUpdated: string | null;
 }
 
+function createSessionId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `session-${Date.now()}`;
+}
+
 export default function HomePageClient({
   initialTrends,
   verifiedStoreCount,
@@ -46,48 +67,74 @@ export default function HomePageClient({
   const [trends, setTrends] = useState<Trend[]>(initialTrends);
   const [nearbyStores, setNearbyStores] = useState<NearbyStore[]>([]);
   const [loading, setLoading] = useState(initialTrends.length === 0);
+  const [launcherOpen, setLauncherOpen] = useState(false);
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(
     null
   );
-  const [locationStatus, setLocationStatus] = useState<
-    "idle" | "granted" | "denied" | "unsupported"
-  >("idle");
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
+  const [sessionId, setSessionId] = useState("");
+  const [selectedRadius, setSelectedRadius] = useState(1000);
+  const [selectedCategory, setSelectedCategory] =
+    useState<YomechuCategorySlug>("all");
+  const [yomechuLoading, setYomechuLoading] = useState(false);
+  const [yomechuError, setYomechuError] = useState<string | null>(null);
+  const [yomechuResult, setYomechuResult] = useState<YomechuSpinResponse | null>(
+    null
+  );
+  const [revealOpen, setRevealOpen] = useState(false);
 
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          setLocationStatus("granted");
-        },
-        () => {
-          setLocationStatus("denied");
-        }
-      );
+  const requestUserLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationStatus("unsupported");
       return;
     }
 
-    setLocationStatus("unsupported");
+    setLocationStatus("loading");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocationStatus("granted");
+      },
+      () => {
+        setUserLoc(null);
+        setLocationStatus("denied");
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0,
+      }
+    );
+  }, []);
+
+  const fetchTrends = useCallback(async () => {
+    const { data } = await supabase
+      .from("trends")
+      .select("*, stores(count)")
+      .in("status", ["rising", "active"])
+      .order("peak_score", { ascending: false });
+
+    if (data) {
+      const mapped = data.map((trend: any) => ({
+        ...trend,
+        store_count: trend.stores?.[0]?.count || 0,
+      }));
+      setTrends(mapped);
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    const fetchTrends = async () => {
-      const { data } = await supabase
-        .from("trends")
-        .select("*, stores(count)")
-        .in("status", ["rising", "active"])
-        .order("peak_score", { ascending: false });
+    const storedSessionId = window.localStorage.getItem("yomechu-session-id");
+    if (storedSessionId) {
+      setSessionId(storedSessionId);
+    } else {
+      const nextSessionId = createSessionId();
+      window.localStorage.setItem("yomechu-session-id", nextSessionId);
+      setSessionId(nextSessionId);
+    }
 
-      if (data) {
-        const mapped = data.map((trend: any) => ({
-          ...trend,
-          store_count: trend.stores?.[0]?.count || 0,
-        }));
-        setTrends(mapped);
-      }
-      setLoading(false);
-    };
-
+    requestUserLocation();
     fetchTrends();
 
     const channel = supabase
@@ -102,7 +149,7 @@ export default function HomePageClient({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [fetchTrends, requestUserLocation]);
 
   useEffect(() => {
     if (!userLoc) return;
@@ -141,9 +188,116 @@ export default function HomePageClient({
   const showLocationNotice =
     locationStatus === "denied" || locationStatus === "unsupported";
 
+  const spinYomechu = useCallback(async () => {
+    if (!userLoc || !sessionId) {
+      setYomechuError("현재 위치를 확인한 뒤 다시 시도해 주세요.");
+      setRevealOpen(true);
+      return;
+    }
+
+    setYomechuLoading(true);
+    setYomechuError(null);
+    setYomechuResult(null);
+    setRevealOpen(true);
+    setLauncherOpen(false);
+
+    try {
+      const result = await fetchYomechuSpin({
+        lat: userLoc.lat,
+        lng: userLoc.lng,
+        radius_m: selectedRadius,
+        category_slug: selectedCategory,
+        session_id: sessionId,
+      });
+      setYomechuResult(result);
+    } catch (error) {
+      setYomechuError(
+        error instanceof Error
+          ? error.message
+          : "요메추 추천을 불러오지 못했습니다."
+      );
+    } finally {
+      setYomechuLoading(false);
+    }
+  }, [selectedCategory, selectedRadius, sessionId, userLoc]);
+
+  const handleCloseReveal = useCallback(() => {
+    if (yomechuResult?.spin_id && sessionId) {
+      void sendYomechuFeedback({
+        spin_id: yomechuResult.spin_id,
+        place_id: yomechuResult.winner.place_id,
+        session_id: sessionId,
+        event_type: "close",
+      });
+    }
+    setRevealOpen(false);
+  }, [sessionId, yomechuResult]);
+
+  const handleReroll = useCallback(async () => {
+    if (yomechuResult?.spin_id && sessionId) {
+      void sendYomechuFeedback({
+        spin_id: yomechuResult.spin_id,
+        place_id: yomechuResult.winner.place_id,
+        session_id: sessionId,
+        event_type: "reroll",
+      });
+    }
+
+    await spinYomechu();
+  }, [sessionId, spinYomechu, yomechuResult]);
+
+  const handleOpenPlace = useCallback(
+    (place: YomechuPlace) => {
+      if (yomechuResult?.spin_id && sessionId) {
+        void sendYomechuFeedback({
+          spin_id: yomechuResult.spin_id,
+          place_id: place.place_id,
+          session_id: sessionId,
+          event_type: "open",
+          payload: {
+            place_url: place.place_url,
+          },
+        });
+      }
+
+      window.open(place.place_url, "_blank", "noopener,noreferrer");
+    },
+    [sessionId, yomechuResult]
+  );
+
   return (
     <>
-      <Header />
+      <Header
+        rightSlot={
+          <button
+            type="button"
+            onClick={() => setLauncherOpen((open) => !open)}
+            aria-expanded={launcherOpen}
+            aria-haspopup="dialog"
+            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold tracking-[0.12em] transition-colors ${
+              launcherOpen
+                ? "border-primary bg-primary text-white"
+                : "border-primary/20 bg-primary/5 text-primary hover:border-primary/40 hover:bg-primary/10"
+            }`}
+          >
+            요메추
+          </button>
+        }
+        bottomSlot={
+          <YomechuLauncher
+            open={launcherOpen}
+            locationStatus={locationStatus}
+            selectedRadius={selectedRadius}
+            selectedCategory={selectedCategory}
+            isSubmitting={yomechuLoading}
+            error={yomechuError}
+            onRadiusChange={setSelectedRadius}
+            onCategoryChange={setSelectedCategory}
+            onSpin={spinYomechu}
+            onRetryLocation={requestUserLocation}
+          />
+        }
+      />
       <main className="max-w-lg mx-auto px-4 py-4">
         <section className="mb-6">
           <div className="bg-gradient-to-br from-purple-400 to-blue-400 rounded-2xl px-6 py-6 text-white">
@@ -284,6 +438,15 @@ export default function HomePageClient({
         </section>
         <Footer />
       </main>
+      <YomechuRevealModal
+        isOpen={revealOpen}
+        isLoading={yomechuLoading}
+        error={yomechuError}
+        result={yomechuResult}
+        onClose={handleCloseReveal}
+        onReroll={handleReroll}
+        onOpenPlace={handleOpenPlace}
+      />
       <BottomNav />
     </>
   );

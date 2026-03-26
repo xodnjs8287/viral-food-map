@@ -58,6 +58,29 @@ def get_stores_by_trend_ids(trend_ids: list[str]):
     )
 
 
+def get_store_trend_lookup(batch_size: int = 1000):
+    client = get_client()
+    rows = []
+    start = 0
+
+    while True:
+        result = (
+            client.table("stores")
+            .select("name,address,trends(name)")
+            .range(start, start + batch_size - 1)
+            .execute()
+        )
+        batch = result.data or []
+        if not batch:
+            break
+        rows.extend(batch)
+        if len(batch) < batch_size:
+            break
+        start += batch_size
+
+    return rows
+
+
 def insert_keywords(keywords: list[dict]):
     """키워드 일괄 등록 (중복 시 무시)"""
     if not keywords:
