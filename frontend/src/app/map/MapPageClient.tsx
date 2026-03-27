@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import KakaoMap, { type MapBounds } from "@/components/KakaoMap";
@@ -12,12 +12,17 @@ interface MapPageClientProps {
   initialTrends: Trend[];
 }
 
+type MapStore = Store & {
+  trend_name?: string | null;
+};
+
 export default function MapPageClient({ initialTrends }: MapPageClientProps) {
   const [trends, setTrends] = useState<Trend[]>(initialTrends);
-  const [stores, setStores] = useState<Store[]>([]);
+  const [stores, setStores] = useState<MapStore[]>([]);
   const [selectedTrendId, setSelectedTrendId] = useState<string | "all">("all");
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
+  const [storeQuery, setStoreQuery] = useState("");
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(
     null
   );
@@ -91,13 +96,30 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
           data.map((store: any) => ({
             ...store,
             trend_name: store.trends?.name,
-          })) as Store[]
+          })) as MapStore[]
         );
       }
     });
   }, [mapBounds, selectedTrendId]);
 
-  const filteredStores = stores;
+  const filteredStores = useMemo(() => {
+    if (!storeQuery.trim()) return stores;
+    const q = storeQuery.trim().toLowerCase();
+    return stores.filter(
+      (store) =>
+        store.name.toLowerCase().includes(q) ||
+        store.address.toLowerCase().includes(q)
+    );
+  }, [stores, storeQuery]);
+
+  useEffect(() => {
+    if (!selectedStoreId) return;
+    if (filteredStores.some((store) => store.id === selectedStoreId)) return;
+    setSelectedStoreId(null);
+  }, [filteredStores, selectedStoreId]);
+
+  const hasStoreQuery = storeQuery.trim().length > 0;
+  const showSearchInput = stores.length > 3 || hasStoreQuery;
 
   return (
     <>
@@ -148,7 +170,7 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
 
         {locReady && userLoc ? (
           <KakaoMap
-            stores={stores}
+            stores={filteredStores}
             center={userLoc}
             level={7}
             className="map-container !h-[60vh]"
@@ -169,18 +191,33 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
               {`판매처 ${filteredStores.length}곳`}
             </h3>
           </div>
+          {showSearchInput && (
+            <div className="mb-3">
+              <input
+                type="text"
+                value={storeQuery}
+                onChange={(e) => setStoreQuery(e.target.value)}
+                placeholder="판매처 이름이나 주소 검색"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          )}
           {filteredStores.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center">
               <p className="text-sm font-semibold text-gray-700">
-                현재 지도 범위에 판매처가 없습니다.
+                {hasStoreQuery && stores.length > 0
+                  ? "검색 결과와 일치하는 판매처가 없습니다."
+                  : "현재 지도 범위에 판매처가 없습니다."}
               </p>
               <p className="mt-1 text-sm text-gray-500">
-                지도를 이동하거나 다른 트렌드를 선택해 보세요.
+                {hasStoreQuery && stores.length > 0
+                  ? "다른 이름이나 주소로 다시 검색해 보세요."
+                  : "지도를 이동하거나 다른 트렌드를 선택해 보세요."}
               </p>
             </div>
           ) : (
             <div className="space-y-2">
-              {filteredStores.map((store: any) => (
+              {filteredStores.map((store) => (
                 <div
                   key={store.id}
                   id={`store-${store.id}`}
