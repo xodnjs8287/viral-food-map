@@ -113,7 +113,7 @@ export default function YomechuSharePageClient({
   if (!primaryWinner) {
     return (
       <>
-        <Header showBack />
+        <Header />
         <main className="mx-auto flex max-w-lg flex-col gap-8 px-4 py-12">
           <section className="rounded-[32px] border border-white/20 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.18),_transparent_35%),linear-gradient(160deg,_#111827_0%,_#160f2d_55%,_#10203c_100%)] px-6 py-8 text-center text-white shadow-[0_30px_80px_rgba(17,24,39,0.55)]">
             <p className="text-lg font-bold text-white">추천 결과를 불러오지 못했어요</p>
@@ -135,7 +135,7 @@ export default function YomechuSharePageClient({
 
   return (
     <>
-      <Header showBack />
+      <Header />
       <main className="mx-auto max-w-lg px-4 py-4">
         <motion.section
           initial={{ opacity: 0, y: 24 }}
@@ -156,10 +156,6 @@ export default function YomechuSharePageClient({
               <h1 className="mt-2 break-keep text-2xl font-black tracking-[-0.05em] text-white">
                 오늘 갈 곳을 정리해 드릴게요
               </h1>
-              <p className="mt-1 break-keep text-sm leading-6 text-white/68">
-                공유된 요메추 추천 결과예요. 기준 위치 정보는 숨기고 추천된 매장 정보만
-                보여줍니다.
-              </p>
             </div>
 
             <div className="rounded-[28px] border border-white/10 bg-white/7 p-4">
