@@ -67,7 +67,7 @@ function ResultRow({
             {place.address}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <span className="rounded-full bg-primary/18 px-2.5 py-1 text-[11px] font-semibold text-white">
+            <span className="inline-flex items-center rounded-full border border-primary/35 bg-primary/18 px-3 py-1 text-[11px] font-semibold text-white shadow-[0_8px_18px_rgba(155,125,212,0.2)] backdrop-blur-sm">
               {place.category_label}
             </span>
             {place.rating ? (
@@ -294,9 +294,11 @@ export default function YomechuRevealModal({
                           : "border-white/10 bg-black/15"
                       }`}
                     >
-                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/45">
-                        {activePlace.category_label}
-                      </p>
+                      <div className="inline-flex">
+                        <span className="inline-flex items-center rounded-full border border-primary/35 bg-primary/18 px-3 py-1 text-[11px] font-semibold tracking-[0.08em] text-white shadow-[0_10px_22px_rgba(155,125,212,0.24)] backdrop-blur-sm">
+                          {activePlace.category_label}
+                        </span>
+                      </div>
                       <h4 className="mt-2 break-keep text-[28px] font-black tracking-[-0.05em] text-white sm:text-[30px]">
                         {activePlace.name}
                       </h4>
