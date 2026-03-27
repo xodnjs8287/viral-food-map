@@ -18,7 +18,7 @@ cd crawler && uvicorn main:app --reload        # 개발서버 http://localhost:8
 
 - 프론트: `npx next build` 성공 여부로 타입/빌드 검증 (별도 테스트 스위트 없음)
 - 크롤러: 개별 모듈을 `python3 -c "..."` 로 단위 실행하여 검증
-- UI 변경 시 반드시 Chrome 브라우저(mcp__claude-in-chrome)로 스크린샷 확인
+- UI 변경 시 반드시 Playwright MCP(mcp__playwright)로 브라우저 스크린샷 확인
 
 ## 배포
 

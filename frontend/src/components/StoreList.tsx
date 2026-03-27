@@ -49,9 +49,13 @@ function StarRating({ rating }: { rating: number | null }) {
   );
 }
 
-function getStoreLink(store: Store): string {
-  if (store.place_url) return store.place_url;
-  return `https://map.naver.com/p/search/${encodeURIComponent(store.name)}`;
+function getStoreLinkInfo(store: Store): { url: string; label: string; className: string } {
+  const url = store.place_url || `https://map.naver.com/p/search/${encodeURIComponent(store.name)}`;
+  if (url.includes("kakao"))
+    return { url, label: "카카오", className: "bg-yellow-400 text-black text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-yellow-500 transition-colors" };
+  if (url.includes("naver"))
+    return { url, label: "네이버", className: "bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-green-600 transition-colors" };
+  return { url, label: "지도 보기", className: "bg-gray-400 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-gray-500 transition-colors" };
 }
 
 export default function StoreList({
@@ -108,19 +112,24 @@ export default function StoreList({
             </span>
           )}
           <div className="flex gap-1.5 flex-shrink-0">
-            <a
-              href={getStoreLink(store)}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                openExternalUrl(getStoreLink(store));
-              }}
-              className="bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-green-600 transition-colors"
-            >
-              네이버
-            </a>
+            {(() => {
+              const linkInfo = getStoreLinkInfo(store);
+              return (
+                <a
+                  href={linkInfo.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openExternalUrl(linkInfo.url);
+                  }}
+                  className={linkInfo.className}
+                >
+                  {linkInfo.label}
+                </a>
+              );
+            })()}
             <button
               onClick={(e) => {
                 e.stopPropagation();

@@ -208,25 +208,32 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
                     <p className="text-xs text-gray-400 truncate">{store.address}</p>
                   </div>
                   <div className="flex gap-1.5 flex-shrink-0">
-                    <a
-                      href={
-                        store.place_url ||
-                        `https://map.naver.com/p/search/${encodeURIComponent(store.name)}`
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        openExternalUrl(
-                          store.place_url ||
-                            `https://map.naver.com/p/search/${encodeURIComponent(store.name)}`
-                        );
-                      }}
-                      className="bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-green-600 transition-colors"
-                    >
-                      네이버
-                    </a>
+                    {(() => {
+                      const url = store.place_url || `https://map.naver.com/p/search/${encodeURIComponent(store.name)}`;
+                      const isKakao = url.includes("kakao");
+                      const isNaver = url.includes("naver");
+                      const label = isKakao ? "카카오" : isNaver ? "네이버" : "지도 보기";
+                      const cls = isKakao
+                        ? "bg-yellow-400 text-black text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-yellow-500 transition-colors"
+                        : isNaver
+                          ? "bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-green-600 transition-colors"
+                          : "bg-gray-400 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-gray-500 transition-colors";
+                      return (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openExternalUrl(url);
+                          }}
+                          className={cls}
+                        >
+                          {label}
+                        </a>
+                      );
+                    })()}
                     <a
                       href={`https://www.instagram.com/explore/tags/${encodeURIComponent(
                         store.name.replace(/\s/g, "")

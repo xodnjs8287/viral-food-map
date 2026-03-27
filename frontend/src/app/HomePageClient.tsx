@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 import BottomNav from "@/components/BottomNav";
@@ -8,6 +9,7 @@ import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import InstallPrompt from "@/components/InstallPrompt";
 import PushSubscribeButton from "@/components/PushSubscribeButton";
+import ScrollToTop from "@/components/ScrollToTop";
 import TrendCard from "@/components/TrendCard";
 import YomechuLauncher from "@/components/YomechuLauncher";
 import YomechuLocationPickerModal from "@/components/YomechuLocationPickerModal";
@@ -443,7 +445,7 @@ export default function HomePageClient({
                 : "border-primary/20 bg-primary/5 text-primary hover:border-primary/40 hover:bg-primary/10"
             }`}
           >
-            요메추
+            오늘 뭐 먹지?
           </button>
         }
         bottomSlot={
@@ -632,23 +634,70 @@ export default function HomePageClient({
           </section>
         ) : (
           <>
-            {trends.filter((t) => t.type === "viral").length > 0 && (
-              <section className="mb-8">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="font-bold text-gray-900">🔥 지금 뜨는 트렌드</h3>
-                  <span className="text-xs text-gray-400">
-                    {trends.filter((t) => t.type === "viral").length}개
-                  </span>
-                </div>
-                <div className="flex flex-col gap-8">
-                  {trends
-                    .filter((t) => t.type === "viral")
-                    .map((trend) => (
-                      <TrendCard key={trend.id} trend={trend} />
-                    ))}
-                </div>
-              </section>
-            )}
+            {(() => {
+              const viralTrends = trends.filter((t) => t.type === "viral");
+              const topTrend = viralTrends[0];
+              const restViral = viralTrends.slice(1);
+              return viralTrends.length > 0 ? (
+                <>
+                  {topTrend && (
+                    <section className="mb-8">
+                      <Link href={`/trend/${topTrend.id}`}>
+                        <div className="relative rounded-2xl overflow-hidden shadow-lg">
+                          <div className="relative h-56 w-full bg-gray-100">
+                            {topTrend.image_url ? (
+                              <Image
+                                src={topTrend.image_url}
+                                alt={topTrend.name}
+                                fill
+                                sizes="(max-width: 512px) 100vw, 512px"
+                                className="object-cover"
+                                priority
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center text-6xl">
+                                🔥
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                            <div className="absolute top-3 left-3">
+                              <span className="bg-red-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-full">
+                                🔥 지금 가장 핫한
+                              </span>
+                            </div>
+                            <div className="absolute bottom-0 left-0 right-0 p-4">
+                              <h2 className="text-2xl font-bold text-white tracking-[-0.03em]">{topTrend.name}</h2>
+                              <p className="text-sm text-white/85 mt-1 line-clamp-2">
+                                {topTrend.description || "곧 설명이 추가됩니다"}
+                              </p>
+                              <div className="flex items-center gap-3 mt-2 text-xs text-white/70">
+                                <span>인기도 {Math.min(topTrend.peak_score, 100)}%</span>
+                                <span>판매처 {topTrend.store_count || 0}곳</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </Link>
+                    </section>
+                  )}
+                  {restViral.length > 0 && (
+                    <section className="mb-8">
+                      <div className="mb-3 flex items-center justify-between">
+                        <h3 className="font-bold text-gray-900">🔥 지금 뜨는 트렌드</h3>
+                        <span className="text-xs text-gray-400">
+                          {restViral.length}개
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-8">
+                        {restViral.map((trend) => (
+                          <TrendCard key={trend.id} trend={trend} />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
+              ) : null;
+            })()}
 
             {trends.filter((t) => t.type === "steady").length > 0 && (
               <section>
@@ -671,6 +720,7 @@ export default function HomePageClient({
         )}
         <Footer />
       </main>
+      <ScrollToTop />
       <YomechuLocationPickerModal
         isOpen={locationPickerOpen}
         initialCenter={locationPickerInitialCenter}

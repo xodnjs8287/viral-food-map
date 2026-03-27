@@ -64,7 +64,18 @@ export default function PushSubscribeButton() {
     }
   };
 
-  if (status === "unsupported" || status === "denied") return null;
+  if (status === "denied") return null;
+
+  if (status === "unsupported") {
+    const isIOS = typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent);
+    if (!isIOS) return null;
+    return (
+      <p className="text-xs text-gray-400 text-center">
+        iOS에서는 홈 화면에 추가하면 알림을 받을 수 있어요
+      </p>
+    );
+  }
+
   if (status === "subscribed") {
     return (
       <span className="text-xs text-gray-400 flex items-center gap-1">
@@ -74,11 +85,14 @@ export default function PushSubscribeButton() {
   }
 
   return (
-    <button
-      onClick={handleSubscribe}
-      className="text-xs text-primary flex items-center gap-1 border border-primary/30 rounded-full px-3 py-1"
-    >
-      🔔 새 트렌드 알림 받기
-    </button>
+    <div className="flex flex-col items-center gap-1">
+      <button
+        onClick={handleSubscribe}
+        className="text-xs text-primary flex items-center gap-1 border border-primary/30 rounded-full px-3 py-1"
+      >
+        🔔 새 트렌드 알림 받기
+      </button>
+      <p className="text-[10px] text-gray-400">브라우저 푸시 알림으로 새 트렌드 소식을 알려드려요</p>
+    </div>
   );
 }

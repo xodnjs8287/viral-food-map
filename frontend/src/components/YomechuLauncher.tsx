@@ -160,7 +160,7 @@ export default function YomechuLauncher({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-primary/70">
-                      Random Nearby Pick
+                      오늘은 트렌드 말고 그냥 밥!
                     </p>
                     <h2 className="mt-1 break-keep text-xl font-black tracking-[-0.04em] text-gray-900">
                       요메추
@@ -211,7 +211,7 @@ export default function YomechuLauncher({
                   Filter
                 </p>
                 <p className="mt-1 break-keep text-sm font-medium leading-6 text-white/90">
-                  추천 수, 거리, 업종을 고르면 근처 후보를 섞어서 바로 추천해 드립니다.
+                  거리와 업종만 고르면 근처 맛집을 랜덤으로 골라드려요.
                 </p>
               </div>
 
