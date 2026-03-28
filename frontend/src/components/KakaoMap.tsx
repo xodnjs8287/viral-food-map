@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Store } from "@/lib/types";
+import { getCurrentPosition } from "@/lib/native-geolocation";
+import { Haptics, ImpactStyle } from "@capacitor/haptics";
 
 export interface MapBounds {
   sw: { lat: number; lng: number };
@@ -234,6 +236,7 @@ export default function KakaoMap({
   };
 
   const moveToMyLocation = async () => {
+    Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {});
     if (!map) return;
 
     if (currentLocation) {
@@ -249,17 +252,9 @@ export default function KakaoMap({
       return;
     }
 
-    if (!navigator.geolocation) return;
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        panToLocation({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        });
-      },
-      () => {}
-    );
+    getCurrentPosition({ timeout: 8000 })
+      .then((loc) => panToLocation(loc))
+      .catch(() => {});
   };
 
   if (!process.env.NEXT_PUBLIC_KAKAO_MAP_KEY) {

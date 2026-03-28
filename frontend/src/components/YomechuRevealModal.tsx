@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { formatDistanceMeters } from "@/lib/crawler";
 import type { YomechuPlace, YomechuSpinResponse } from "@/lib/types";
 import ShareButton from "@/components/ShareButton";
+import { Haptics, NotificationType } from "@capacitor/haptics";
 
 interface YomechuRevealModalProps {
   isOpen: boolean;
@@ -199,6 +200,7 @@ export default function YomechuRevealModal({
       setTimeout(() => {
         setPhase("winner");
         setCurrentIndex(Math.max(reel.length - 1, 0));
+        Haptics.notification({ type: NotificationType.Success }).catch(() => {});
       }, elapsed)
     );
 

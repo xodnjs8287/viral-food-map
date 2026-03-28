@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Haptics, ImpactStyle } from "@capacitor/haptics";
+import { isNative } from "@/lib/capacitor-utils";
 
 interface ShareButtonProps {
   title: string;
@@ -42,10 +44,30 @@ export default function ShareButton({
   };
 
   const handleShare = async () => {
+    Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {});
     const shareData = {
       title,
       url: shareUrl,
     };
+
+    // 네이티브 앱: Capacitor Share → OS 공유 시트
+    if (isNative()) {
+      try {
+        const { Share } = await import("@capacitor/share");
+        await Share.share({
+          title,
+          text: description ?? "요즘뭐먹에서 확인해보세요!",
+          url: shareUrl,
+          dialogTitle: "공유하기",
+        });
+        onShare?.("native");
+        return;
+      } catch {
+        // 사용자 취소 또는 에러 → 클립보드 폴백
+        handleCopy();
+        return;
+      }
+    }
 
     // 1순위: Web Share API (모바일 네이티브 시트 → 카카오톡 포함)
     if (typeof navigator !== "undefined" && navigator.share) {
