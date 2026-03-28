@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import NativeInitializer from "@/components/NativeInitializer";
 import PageViewTracker from "@/components/PageViewTracker";
 import {
   NAVER_SITE_VERIFICATION,
@@ -80,6 +81,7 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-gray-50 min-h-screen pb-16">
+        <NativeInitializer />
         <PageViewTracker />
         {children}
       </body>

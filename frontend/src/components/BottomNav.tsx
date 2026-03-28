@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
+import { Haptics, ImpactStyle } from "@capacitor/haptics";
 
 function HomeIcon({ active }: { active: boolean }) {
   return (
@@ -41,6 +42,7 @@ export default function BottomNav() {
 
   const handleNav = (href: string) => {
     if (href === pathname) return;          // 같은 탭 → 무시
+    Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
     if (href === "/") {
       router.replace("/");                  // 홈은 항상 replace (스택 쌓지 않음)
     } else {

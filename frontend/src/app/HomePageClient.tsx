@@ -13,6 +13,8 @@ import ScrollToTop from "@/components/ScrollToTop";
 import TrendCard from "@/components/TrendCard";
 import YomechuLauncher from "@/components/YomechuLauncher";
 import YomechuLocationPickerModal from "@/components/YomechuLocationPickerModal";
+import { getCurrentPosition } from "@/lib/native-geolocation";
+import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import YomechuRevealModal from "@/components/YomechuRevealModal";
 import {
   fetchYomechuSpin,
@@ -198,22 +200,10 @@ export default function HomePageClient({
   );
 
   const requestUserLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      setLocationStatus("unsupported");
-      setYomechuBaseLocation((current) =>
-        current && current.source !== "device" ? current : null
-      );
-      return;
-    }
-
     setLocationStatus("loading");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const nextLocation = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        };
 
+    getCurrentPosition({ enableHighAccuracy: true, timeout: 8000 })
+      .then((nextLocation) => {
         setUserLoc(nextLocation);
         setYomechuBaseLocation({
           ...nextLocation,
@@ -222,20 +212,14 @@ export default function HomePageClient({
         });
         setLocationStatus("granted");
         updateBaseLocationLabel("device", nextLocation, "현재 위치");
-      },
-      () => {
+      })
+      .catch(() => {
         setUserLoc(null);
         setYomechuBaseLocation((current) =>
           current && current.source !== "device" ? current : null
         );
         setLocationStatus("denied");
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 8000,
-        maximumAge: 0,
-      }
-    );
+      });
   }, [updateBaseLocationLabel]);
 
   const handleUsePresetLocation = useCallback((preset: YomechuLocationPreset) => {
@@ -357,6 +341,7 @@ export default function HomePageClient({
     };
 
   const spinYomechu = useCallback(async () => {
+    Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {});
     if (!yomechuBaseLocation || !sessionId) {
       setYomechuError(
         "현재 위치를 확인하거나 기준 지역을 선택한 뒤 다시 시도해 주세요."

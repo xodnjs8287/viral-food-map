@@ -7,6 +7,7 @@ import KakaoMap, { type MapBounds } from "@/components/KakaoMap";
 import { openExternalUrl, openInstagramTag } from "@/lib/external-links";
 import { supabase } from "@/lib/supabase";
 import type { Store, Trend } from "@/lib/types";
+import { getCurrentPosition } from "@/lib/native-geolocation";
 
 interface MapPageClientProps {
   initialTrends: Trend[];
@@ -34,39 +35,20 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
 
   const requestLocation = useCallback(
     () =>
-      new Promise<UserLocation | null>((resolve) => {
-        if (!navigator.geolocation) {
+      getCurrentPosition({ timeout: 5000 })
+        .then((nextLocation) => {
+          setUserLoc(nextLocation);
+          setLocationMessage(null);
+          setLocReady(true);
+          return nextLocation as UserLocation;
+        })
+        .catch(() => {
           const fallbackLocation = { lat: 37.5665, lng: 126.978 };
           setUserLoc(fallbackLocation);
-          setLocationMessage(
-            "위치 기능을 지원하지 않아 서울 시청 기준으로 표시 중입니다."
-          );
+          setLocationMessage("위치 권한이 없어 서울 시청 기준으로 표시 중입니다.");
           setLocReady(true);
-          resolve(fallbackLocation);
-          return;
-        }
-
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            const nextLocation = {
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-            };
-            setUserLoc(nextLocation);
-            setLocationMessage(null);
-            setLocReady(true);
-            resolve(nextLocation);
-          },
-          () => {
-            const fallbackLocation = { lat: 37.5665, lng: 126.978 };
-            setUserLoc(fallbackLocation);
-            setLocationMessage("위치 권한이 없어 서울 시청 기준으로 표시 중입니다.");
-            setLocReady(true);
-            resolve(fallbackLocation);
-          },
-          { timeout: 5000 }
-        );
-      }),
+          return fallbackLocation as UserLocation;
+        }),
     []
   );
 
