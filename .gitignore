@@ -33,9 +33,16 @@ frontend/public/workbox-*.js
 frontend/public/swe-worker-*.js
 frontend/public/worker-*.js
 
-# Capacitor native projects
-frontend/ios/
-frontend/android/
+# Capacitor native build artifacts (프로젝트 소스는 추적)
+frontend/ios/App/Pods/
+frontend/ios/App/build/
+frontend/ios/App/App/public/
+frontend/ios/App/capacitor.config.json
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/android/app/src/main/assets/public/
+frontend/android/app/src/main/assets/capacitor.config.json
+frontend/android/capacitor-cordova-android-plugins/build/
 
 # Claude Code
 .claude/settings.local.json

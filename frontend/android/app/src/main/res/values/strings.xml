@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">요즘뭐먹</string>
+    <string name="title_activity_main">요즘뭐먹</string>
+    <string name="package_name">com.yozmeat.app</string>
+    <string name="custom_url_scheme">com.yozmeat.app</string>
+    <string name="shortcut_map">지도</string>
+    <string name="shortcut_map_long">주변 판매처 지도</string>
+    <string name="shortcut_report">제보</string>
+    <string name="shortcut_report_long">판매처 제보하기</string>
+</resources>

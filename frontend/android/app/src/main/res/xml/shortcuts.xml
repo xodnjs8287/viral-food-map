@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="map"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_map"
+        android:shortcutLongLabel="@string/shortcut_map_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.yozmeat.app"
+            android:targetClass="com.yozmeat.app.MainActivity"
+            android:data="https://www.yozmeat.com/map" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="report"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_report"
+        android:shortcutLongLabel="@string/shortcut_report_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.yozmeat.app"
+            android:targetClass="com.yozmeat.app.MainActivity"
+            android:data="https://www.yozmeat.com/report" />
+    </shortcut>
+</shortcuts>
