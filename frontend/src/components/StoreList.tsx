@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { openExternalUrl, openInstagramTag } from "@/lib/external-links";
 import type { Store } from "@/lib/types";
+
+type FranchiseFilter = "all" | "franchise" | "independent";
 
 interface StoreListProps {
   stores: Store[];
@@ -58,18 +60,36 @@ function getStoreLinkInfo(store: Store): { url: string; label: string; className
   return { url, label: "지도 보기", className: "bg-gray-400 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-gray-500 transition-colors" };
 }
 
+const FILTER_OPTIONS: { value: FranchiseFilter; label: string }[] = [
+  { value: "all", label: "전체" },
+  { value: "franchise", label: "프랜차이즈" },
+  { value: "independent", label: "개인" },
+];
+
 export default function StoreList({
   stores,
   userLoc,
   selectedStoreId,
   onStoreClick,
 }: StoreListProps) {
+  const [filter, setFilter] = useState<FranchiseFilter>("all");
+
   useEffect(() => {
     if (!selectedStoreId) return;
     document
       .getElementById(`store-${selectedStoreId}`)
       ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [selectedStoreId]);
+
+  const filteredStores =
+    filter === "all"
+      ? stores
+      : filter === "franchise"
+        ? stores.filter((s) => s.is_franchise)
+        : stores.filter((s) => !s.is_franchise);
+
+  const franchiseCount = stores.filter((s) => s.is_franchise).length;
+  const independentCount = stores.length - franchiseCount;
 
   if (stores.length === 0) {
     return (
@@ -82,8 +102,40 @@ export default function StoreList({
   }
 
   return (
+    <div>
+      <div className="mb-3 flex gap-1.5">
+        {FILTER_OPTIONS.map((opt) => {
+          const count =
+            opt.value === "all"
+              ? stores.length
+              : opt.value === "franchise"
+                ? franchiseCount
+                : independentCount;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setFilter(opt.value)}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
+                filter === opt.value
+                  ? "bg-gray-900 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+              }`}
+            >
+              {opt.label} {count}
+            </button>
+          );
+        })}
+      </div>
+      {filteredStores.length === 0 ? (
+        <div className="text-center py-6 text-gray-400">
+          <p className="text-sm">
+            {filter === "franchise" ? "프랜차이즈 매장이 없어요" : "개인 매장이 없어요"}
+          </p>
+        </div>
+      ) : null}
     <div className="space-y-2">
-      {stores.map((store) => (
+      {filteredStores.map((store) => (
         <div
           key={store.id}
           id={`store-${store.id}`}
@@ -151,6 +203,7 @@ export default function StoreList({
           </div>
         </div>
       ))}
+    </div>
     </div>
   );
 }

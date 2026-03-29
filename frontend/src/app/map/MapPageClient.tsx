@@ -29,6 +29,7 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
   const [storeQuery, setStoreQuery] = useState("");
+  const [franchiseFilter, setFranchiseFilter] = useState<"all" | "franchise" | "independent">("all");
   const [userLoc, setUserLoc] = useState<UserLocation | null>(null);
   const [locReady, setLocReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState<string | null>(null);
@@ -103,14 +104,20 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
   }, [mapBounds, selectedTrendId]);
 
   const filteredStores = useMemo(() => {
-    if (!storeQuery.trim()) return stores;
+    let result = stores;
+    if (franchiseFilter === "franchise") {
+      result = result.filter((s) => s.is_franchise);
+    } else if (franchiseFilter === "independent") {
+      result = result.filter((s) => !s.is_franchise);
+    }
+    if (!storeQuery.trim()) return result;
     const q = storeQuery.trim().toLowerCase();
-    return stores.filter(
+    return result.filter(
       (store) =>
         store.name.toLowerCase().includes(q) ||
         store.address.toLowerCase().includes(q)
     );
-  }, [stores, storeQuery]);
+  }, [stores, storeQuery, franchiseFilter]);
 
   useEffect(() => {
     if (!selectedStoreId) return;
@@ -195,6 +202,31 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
             <h3 className="font-bold text-sm text-gray-900">
               {`판매처 ${filteredStores.length}곳`}
             </h3>
+          </div>
+          <div className="mb-3 flex gap-1.5">
+            {(["all", "franchise", "independent"] as const).map((val) => {
+              const label = val === "all" ? "전체" : val === "franchise" ? "프랜차이즈" : "개인";
+              const count =
+                val === "all"
+                  ? stores.length
+                  : val === "franchise"
+                    ? stores.filter((s) => s.is_franchise).length
+                    : stores.filter((s) => !s.is_franchise).length;
+              return (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setFranchiseFilter(val)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
+                    franchiseFilter === val
+                      ? "bg-gray-900 text-white shadow-sm"
+                      : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                  }`}
+                >
+                  {label} {count}
+                </button>
+              );
+            })}
           </div>
           {showSearchInput && (
             <div className="mb-3">

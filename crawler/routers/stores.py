@@ -43,7 +43,9 @@ async def submit_report(report: ReportRequest):
 
 @router.post("/backfill-franchise")
 async def backfill_franchise():
-    """기존 매장의 is_franchise 필드를 일괄 업데이트"""
+    """기존 매장의 is_franchise 필드를 일괄 업데이트 (배치)"""
+    from franchise_checker import check_franchise_batch
+
     client = get_client()
     rows: list[dict] = []
     start = 0
@@ -64,12 +66,13 @@ async def backfill_franchise():
             break
         start += batch_size
 
-    updated = 0
-    for row in rows:
-        flag = is_franchise(row["name"])
-        if flag:
-            client.table("stores").update({"is_franchise": True}).eq("id", row["id"]).execute()
-            updated += 1
+    results = check_franchise_batch([r["name"] for r in rows])
+    franchise_ids = [r["id"] for r in rows if results.get(r["name"], False)]
 
-    logger.info(f"프랜차이즈 백필 완료: {updated}/{len(rows)}")
-    return {"total": len(rows), "updated_franchise": updated}
+    # 배치 업데이트: 프랜차이즈인 것만 True로
+    for i in range(0, len(franchise_ids), 50):
+        chunk = franchise_ids[i : i + 50]
+        client.table("stores").update({"is_franchise": True}).in_("id", chunk).execute()
+
+    logger.info(f"프랜차이즈 백필 완료: {len(franchise_ids)}/{len(rows)}")
+    return {"total": len(rows), "updated_franchise": len(franchise_ids)}
