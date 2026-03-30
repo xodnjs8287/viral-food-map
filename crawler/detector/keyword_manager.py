@@ -224,8 +224,26 @@ STOPWORDS = {
     "완성",
     "준비",
     "길거리",
+    "길거리음식",
+    "길거리간식",
     "먹거리",
     "틱톡",
+    "치킨",
+    "피자",
+    "버거",
+    "라면",
+    "삼겹살",
+    "갈비",
+    "냉면",
+    "짜장면",
+    "짬뽕",
+    "비빔밥",
+    "국밥",
+    "김치",
+    "잡채",
+    "순대",
+    "떡볶이",
+    "김밥",
     "바이럴",
     "거리",
     "고민",
@@ -376,7 +394,6 @@ CATEGORY_SIGNALS = {
         "스낵",
         "떡",
         "호떡",
-        "거리",
         "포차",
         "분식",
         "튀김",
@@ -400,6 +417,12 @@ META_KEYWORD_PATTERNS = (
     "메뉴",
     "카페",
     "매장",
+    "신상",
+    "길거리",
+    "인기음식",
+    "핫푸드",
+    "음식추천",
+    "간식거리",
 )
 
 _SEED_KEYWORD_SET = frozenset(
@@ -468,8 +491,11 @@ def has_food_signal(keyword: str) -> bool:
         return True
     if any(seed_keyword in normalized for seed_keyword in _SEED_KEYWORD_SET):
         return True
-    if normalized.startswith(FOOD_PREFIXES) or normalized.endswith(FOOD_SUFFIXES):
+    if normalized.startswith(FOOD_PREFIXES):
         return True
+    for suffix in FOOD_SUFFIXES:
+        if normalized.endswith(suffix) and len(normalized) > len(suffix):
+            return True
     return any(signal in normalized for signal in _FOOD_SIGNAL_TERMS)
 
 

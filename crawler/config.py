@@ -17,7 +17,7 @@ class Settings:
     VAPID_CONTACT: str = os.getenv("VAPID_CONTACT", "mailto:support@yozmeat.com")
 
     TREND_THRESHOLD: float = float(os.getenv("TREND_THRESHOLD", "20"))
-    TREND_SCORE_THRESHOLD: float = float(os.getenv("TREND_SCORE_THRESHOLD", "15"))
+    TREND_SCORE_THRESHOLD: float = float(os.getenv("TREND_SCORE_THRESHOLD", "25"))
     TREND_RISING_SCORE_THRESHOLD: float = float(
         os.getenv("TREND_RISING_SCORE_THRESHOLD", "40")
     )

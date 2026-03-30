@@ -13,6 +13,7 @@ from detector.keyword_manager import (
     STOPWORDS,
     get_flat_keywords,
     is_food_like_token,
+    is_food_specific_keyword,
 )
 
 logger = logging.getLogger(__name__)
@@ -175,6 +176,8 @@ async def discover_keywords() -> dict:
             continue
         if freq < settings.DISCOVERY_MIN_FREQUENCY:
             break  # most_common은 빈도 내림차순
+        if not is_food_specific_keyword(noun):
+            continue
 
         # 음식 문맥 공출현 비율로 부스트
         food_ratio = food_co_occurrence.get(noun, 0) / freq if freq > 0 else 0
