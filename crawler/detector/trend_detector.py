@@ -2,11 +2,12 @@ import logging
 import uuid
 from datetime import datetime
 
+from ai_reviewer import AIReviewError, TrendReviewPayload, review_trend_candidate
 from config import settings
 from crawlers.image_finder import find_food_image
 from crawlers.instagram import get_hashtag_post_count
 from crawlers.naver_datalab import calculate_acceleration, get_search_trend
-from crawlers.naver_search import get_blog_mention_count
+from crawlers.naver_search import get_blog_mention_count, search_blog_mentions
 from crawlers.store_finder import find_stores_nationwide
 from database import (
     get_all_keywords,
@@ -39,15 +40,76 @@ def classify_status(score: float, acceleration: float) -> str:
     return "active"
 
 
-async def detect_trends() -> dict:
-    """메인 트렌드 탐지 로직"""
-    logger.info("=== 트렌드 탐지 시작 ===")
+def _build_search_volume_map(data_points: list[dict]) -> dict[str, float]:
+    return {
+        point.get("period", ""): point.get("ratio", 0)
+        for point in data_points
+        if point.get("period")
+    }
 
-    db_keywords = get_all_keywords()
-    if db_keywords:
-        keywords = [kw["keyword"] for kw in db_keywords]
-    else:
-        keywords = get_flat_keywords()
+
+def _choose_category(
+    keyword: str,
+    db_keywords_by_name: dict[str, dict],
+    existing_trend: dict | None,
+) -> str:
+    if keyword in db_keywords_by_name:
+        return db_keywords_by_name[keyword].get("category") or "기타"
+    if existing_trend:
+        return existing_trend.get("category") or "기타"
+    return "기타"
+
+
+async def _review_candidate_with_ai(
+    candidate: dict,
+    *,
+    category_hint: str,
+) -> tuple[bool, str, str, str, str]:
+    keyword = candidate["keyword"]
+    review = await review_trend_candidate(
+        TrendReviewPayload(
+            keyword=keyword,
+            acceleration=candidate["acceleration"],
+            search_volume_data=_build_search_volume_map(candidate["data_points"]),
+            blog_count=candidate["blog_count"],
+            ig_count=candidate["ig_count"],
+            category_hint=category_hint,
+            evidence_snippets=await search_blog_mentions(
+                keyword,
+                display=settings.AI_REVIEW_MAX_EVIDENCE_SNIPPETS,
+            ),
+        )
+    )
+
+    resolved_keyword = review.canonical_keyword or keyword
+    resolved_category = (
+        review.category
+        if review.category != "기타" or category_hint == "기타"
+        else category_hint
+    )
+    accepted = (
+        review.verdict == "accept"
+        and review.confidence >= settings.AI_REVIEW_MIN_CONFIDENCE
+    )
+    return (
+        accepted,
+        resolved_keyword,
+        resolved_category,
+        review.reason,
+        review.verdict,
+    )
+
+
+async def detect_trends() -> dict:
+    logger.info("=== trend detection started ===")
+
+    db_keywords = get_all_keywords() or []
+    db_keywords_by_name = {
+        item["keyword"]: item
+        for item in db_keywords
+        if item.get("keyword")
+    }
+    keywords = list(db_keywords_by_name) if db_keywords_by_name else get_flat_keywords()
 
     summary = {
         "keywords": len(keywords),
@@ -56,9 +118,13 @@ async def detect_trends() -> dict:
         "stored_trends": 0,
         "stored_stores": 0,
         "confirmed_keywords": [],
+        "ai_reviewed": 0,
+        "ai_rejected_keywords": [],
+        "ai_review_keywords": [],
+        "ai_fallback_keywords": [],
     }
 
-    logger.info(f"모니터링 키워드 {len(keywords)}개")
+    logger.info("Monitoring %s keywords", len(keywords))
 
     search_data = await get_search_trend(keywords)
 
@@ -71,19 +137,32 @@ async def detect_trends() -> dict:
                 "acceleration": acceleration,
                 "data_points": data_points,
             })
-            logger.info(f"후보 발견: {keyword} (증가율 {acceleration:.1f}%)")
+            logger.info(
+                "Candidate detected: %s (acceleration %.1f%%)",
+                keyword,
+                acceleration,
+            )
 
     summary["candidates"] = len(candidates)
 
     if not candidates:
-        logger.info("급등 키워드 없음")
+        logger.info("No rapidly rising keywords found")
         return summary
 
-    confirmed = []
+    candidate_existing_trends = {
+        trend["name"]: trend
+        for trend in get_trends_by_names([candidate["keyword"] for candidate in candidates])
+        if trend.get("name")
+    }
+
+    confirmed_by_name: dict[str, dict] = {}
     for candidate in candidates:
         keyword = candidate["keyword"]
+        existing_trend = candidate_existing_trends.get(keyword)
+        category_hint = _choose_category(keyword, db_keywords_by_name, existing_trend)
+
         if not is_food_specific_keyword(keyword):
-            logger.info(f"일반어 제외: {keyword}")
+            logger.info("Skipping generic keyword: %s", keyword)
             continue
 
         score = 0.0
@@ -101,19 +180,63 @@ async def detect_trends() -> dict:
             elif ig_count > 1000:
                 score += 15
 
-        acceleration = candidate["acceleration"]
-        score += score_acceleration(acceleration)
+        score += score_acceleration(candidate["acceleration"])
 
         candidate["score"] = score
         candidate["blog_count"] = blog_count
         candidate["ig_count"] = ig_count
 
-        if score >= settings.TREND_SCORE_THRESHOLD:
-            confirmed.append(candidate)
-            logger.info(f"트렌드 확정: {keyword} (점수 {score})")
-        else:
-            logger.info(f"트렌드 미달: {keyword} (점수 {score})")
+        if score < settings.TREND_SCORE_THRESHOLD:
+            logger.info("Candidate below score threshold: %s (score %.1f)", keyword, score)
+            continue
 
+        resolved_keyword = keyword
+        resolved_category = category_hint
+        ai_reason = ""
+
+        if settings.AI_REVIEW_ENABLED:
+            try:
+                accepted, resolved_keyword, resolved_category, ai_reason, ai_verdict = (
+                    await _review_candidate_with_ai(
+                        candidate,
+                        category_hint=category_hint,
+                    )
+                )
+                summary["ai_reviewed"] += 1
+                if not accepted:
+                    if ai_reason:
+                        logger.info("AI blocked trend '%s': %s", keyword, ai_reason)
+                    target_key = (
+                        "ai_rejected_keywords"
+                        if ai_verdict == "reject"
+                        else "ai_review_keywords"
+                    )
+                    summary[target_key].append(keyword)
+                    continue
+
+                logger.info(
+                    "AI accepted trend '%s' as '%s' (%s)",
+                    keyword,
+                    resolved_keyword,
+                    ai_reason or "no reason",
+                )
+            except AIReviewError as exc:
+                summary["ai_fallback_keywords"].append(keyword)
+                logger.warning(
+                    "AI review failed for '%s', falling back to rules: %s",
+                    keyword,
+                    exc,
+                )
+
+        candidate["keyword"] = resolved_keyword
+        candidate["category"] = resolved_category
+        candidate["ai_reason"] = ai_reason
+
+        existing_confirmed = confirmed_by_name.get(resolved_keyword)
+        if not existing_confirmed or candidate["score"] > existing_confirmed["score"]:
+            confirmed_by_name[resolved_keyword] = candidate
+
+    confirmed = list(confirmed_by_name.values())
     summary["confirmed"] = len(confirmed)
     summary["confirmed_keywords"] = [trend["keyword"] for trend in confirmed]
 
@@ -126,15 +249,10 @@ async def detect_trends() -> dict:
     for trend in confirmed:
         keyword = trend["keyword"]
         existing_trend = existing_trends.get(keyword)
-
-        db_keyword = next(
-            (item for item in (db_keywords or []) if item["keyword"] == keyword),
-            None,
-        )
-        category = (
-            db_keyword["category"]
-            if db_keyword
-            else existing_trend.get("category") if existing_trend else "기타"
+        category = trend.get("category") or _choose_category(
+            keyword,
+            db_keywords_by_name,
+            existing_trend,
         )
         trend_id = existing_trend["id"] if existing_trend else str(uuid.uuid4())
         status = classify_status(trend["score"], trend["acceleration"])
@@ -146,10 +264,7 @@ async def detect_trends() -> dict:
             "status": status,
             "detected_at": datetime.now().isoformat(),
             "peak_score": trend["score"],
-            "search_volume_data": {
-                point.get("period", ""): point.get("ratio", 0)
-                for point in trend.get("data_points", [])
-            },
+            "search_volume_data": _build_search_volume_map(trend["data_points"]),
             "description": existing_trend.get("description") if existing_trend else None,
             "image_url": existing_trend.get("image_url") if existing_trend else None,
         }
@@ -158,7 +273,7 @@ async def detect_trends() -> dict:
             image_url = await find_food_image(keyword, category=category)
             if image_url:
                 trend_data["image_url"] = image_url
-                logger.info(f"'{keyword}' 대표 이미지 수집 완료")
+                logger.info("Fetched fallback image for '%s'", keyword)
 
         upsert_trend(trend_data)
         summary["stored_trends"] += 1
@@ -168,7 +283,7 @@ async def detect_trends() -> dict:
             store_records = build_store_records(trend_id, stores)
             insert_stores(store_records)
             summary["stored_stores"] += len(store_records)
-            logger.info(f"'{keyword}' 판매처 {len(store_records)}개 등록")
+            logger.info("Stored %s stores for '%s'", len(store_records), keyword)
 
-    logger.info(f"=== 트렌드 탐지 완료: {len(confirmed)}개 확정 ===")
+    logger.info("=== trend detection finished: %s confirmed ===", len(confirmed))
     return summary

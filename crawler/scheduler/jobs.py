@@ -27,6 +27,10 @@ TREND_LABELS = {
     "stored_trends": "저장 트렌드",
     "stored_stores": "등록 판매처",
     "confirmed_keywords": "확정 키워드",
+    "ai_reviewed": "AI 심사 수",
+    "ai_rejected_keywords": "AI 거절 키워드",
+    "ai_review_keywords": "AI 보류 키워드",
+    "ai_fallback_keywords": "AI fallback 키워드",
 }
 
 DISCOVERY_LABELS = {
@@ -34,6 +38,9 @@ DISCOVERY_LABELS = {
     "collected_posts": "수집 포스트",
     "new_keywords": "신규 키워드",
     "keywords": "발굴 키워드",
+    "ai_reviewed": "AI 심사 수",
+    "ai_skipped_keywords": "AI 제외 키워드",
+    "ai_fallback_keywords": "AI fallback 키워드",
 }
 
 STORE_UPDATE_LABELS = {

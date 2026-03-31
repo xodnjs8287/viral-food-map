@@ -1,11 +1,16 @@
 import asyncio
-import re
 import logging
+import re
 from collections import Counter
 
 import httpx
 from kiwipiepy import Kiwi
 
+from ai_reviewer import (
+    AIReviewError,
+    DiscoveryReviewPayload,
+    review_discovered_keyword,
+)
 from config import settings
 from database import get_all_keywords, insert_keywords
 from detector.keyword_manager import (
@@ -22,19 +27,32 @@ logger = logging.getLogger(__name__)
 NAVER_BLOG_URL = "https://openapi.naver.com/v1/search/blog"
 
 META_QUERIES = [
-    # 넓은 범위
     "요즘 핫한 음식 트렌드",
     "SNS 인기 음식 2026",
     "요즘 뭐 먹지 추천",
     "틱톡 바이럴 음식",
-    # 카테고리별
     "요즘 뜨는 디저트",
     "요즘 유행하는 간식 거리음식",
     "핫한 맛집 메뉴 신메뉴",
     "요즘 핫한 음료 카페 신메뉴",
     "요즘 뜨는 분식 길거리",
-    "편의점 신상 먹거리",
+    "인스타 유행 먹거리",
 ]
+
+CATEGORY_PATTERNS = {
+    "디저트": re.compile(
+        r"(케이크|마카롱|쿠키|크림|타르트|롤|파이|빵|약과|탕후루|초콜릿|푸딩|카놀레|브라우니)"
+    ),
+    "음료": re.compile(
+        r"(라떼|에이드|주스|버블|보바|스무디|아이스티|밀크티|커피|쉐이크)"
+    ),
+    "식사": re.compile(
+        r"(덮밥|국수|라면|볶음|찌개|파스타|초밥|샌드위치|마라탕|마라샹궈|갈비|돈까스|버거)"
+    ),
+    "간식": re.compile(
+        r"(호떡|붕어빵|계란빵|핫도그|츄러스|꽈배기|타코야키|도넛|떡볶이|김밥|핫바)"
+    ),
+}
 
 _kiwi: Kiwi | None = None
 
@@ -51,115 +69,84 @@ def strip_html(text: str) -> str:
 
 
 async def search_blogs(query: str, display: int = 30) -> list[dict]:
-    """네이버 블로그 API로 포스트 검색"""
     headers = {
         "X-Naver-Client-Id": settings.NAVER_CLIENT_ID,
         "X-Naver-Client-Secret": settings.NAVER_CLIENT_SECRET,
     }
-    try:
+
+    async def _request() -> list[dict]:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(
+            response = await client.get(
                 NAVER_BLOG_URL,
                 params={"query": query, "display": display, "sort": "date"},
                 headers=headers,
                 timeout=15,
             )
-            resp.raise_for_status()
-            return resp.json().get("items", [])
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
-            logger.warning(f"블로그 검색 Rate Limit ({query}), 2초 대기 후 재시도")
-            await asyncio.sleep(2)
-            try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.get(
-                        NAVER_BLOG_URL,
-                        params={"query": query, "display": display, "sort": "date"},
-                        headers=headers,
-                        timeout=15,
-                    )
-                    resp.raise_for_status()
-                    return resp.json().get("items", [])
-            except Exception:
-                logger.error(f"블로그 검색 재시도 실패 ({query})")
-                return []
-        logger.error(f"블로그 검색 실패 ({query}): {e}")
-        return []
-    except Exception as e:
-        logger.error(f"블로그 검색 실패 ({query}): {e}")
+            response.raise_for_status()
+            return response.json().get("items", [])
+
+    try:
+        return await _request()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 429:
+            logger.error("Blog search failed for '%s': %s", query, exc)
+            return []
+
+        logger.warning("Blog search rate-limited for '%s', retrying once", query)
+        await asyncio.sleep(2)
+        try:
+            return await _request()
+        except Exception as retry_exc:
+            logger.error("Blog search retry failed for '%s': %s", query, retry_exc)
+            return []
+    except Exception as exc:
+        logger.error("Blog search failed for '%s': %s", query, exc)
         return []
 
 
 def extract_nouns(text: str) -> list[str]:
-    """kiwipiepy로 명사 추출 — 복합명사 결합 + 음식명 필터링
-
-    1) 인접한 명사를 결합해 복합명사 생성 (창억+떡 → 창억떡)
-    2) 3글자 이상이거나 음식 접미사를 가진 2글자 명사만 통과
-    """
     kiwi = get_kiwi()
     result = kiwi.analyze(text)
+    tokens = result[0][0]
 
-    # 1단계: 토큰 리스트에서 인접 명사 결합
-    tokens = result[0][0]  # [(token, tag, ...), ...]
     nouns = []
-    i = 0
-    while i < len(tokens):
-        token, tag, *_ = tokens[i]
-        if tag not in ("NNG", "NNP"):
-            i += 1
+    index = 0
+    while index < len(tokens):
+        token, tag, *_ = tokens[index]
+        if tag not in {"NNG", "NNP"}:
+            index += 1
             continue
 
-        # 인접 명사 결합 시도 (최대 3개 토큰까지)
         compound = token
-        j = i + 1
-        while j < len(tokens) and j - i < 3:
-            next_token, next_tag, *_ = tokens[j]
-            if next_tag not in ("NNG", "NNP"):
+        lookahead = index + 1
+        while lookahead < len(tokens) and lookahead - index < 3:
+            next_token, next_tag, *_ = tokens[lookahead]
+            if next_tag not in {"NNG", "NNP"}:
                 break
             compound += next_token
-            j += 1
+            lookahead += 1
 
-        # 복합명사(2+ 토큰 결합)가 유효하면 우선 채택
-        if j > i + 1 and 3 <= len(compound) <= 12:
+        if lookahead > index + 1 and 3 <= len(compound) <= 12:
             nouns.append(compound)
-            i = j
+            index = lookahead
             continue
 
-        # 단일 명사 — 음식명 필터 통과 시 채택
         if 2 <= len(token) <= 10 and is_food_like_token(token, tag):
             nouns.append(token)
-        i += 1
+        index += 1
 
     return nouns
 
 
-CATEGORY_PATTERNS = {
-    "디저트": re.compile(
-        r"(케이크|마카롱|쿠키|크림|타르트|롤|파이|떡케이크|찹쌀|약과|탕후루|초콜릿|도넛|푸딩|카눌레|크로플)"
-    ),
-    "음료": re.compile(
-        r"(라떼|에이드|주스|버블|보바|스무디|아이스티|하이볼|아인슈페너)"
-    ),
-    "식사": re.compile(
-        r"(덮밥|국수|라면|볶음|찌개|돈까스|파스타|초밥|샌드위치|마라탕|마라샹궈|겹살)"
-    ),
-    "간식": re.compile(
-        r"(호떡|붕어빵|계란빵|핫도그|츄러스|꽈배기|타코야키|토스트|순대|떡볶이)"
-    ),
-}
-
-
 def classify_category(noun: str, context_nouns: Counter) -> str:
-    """카테고리 추정: 컨텍스트 기반 → 패턴 매칭 폴백"""
-    # 1) 주변 명사 빈도 기반
-    scores = {}
-    for category, signals in CATEGORY_SIGNALS.items():
-        scores[category] = sum(context_nouns.get(s, 0) for s in signals)
-    best = max(scores, key=scores.get)
-    if scores[best] > 0:
-        return best
+    scores = {
+        category: sum(context_nouns.get(signal, 0) for signal in signals)
+        for category, signals in CATEGORY_SIGNALS.items()
+    }
+    best_category = max(scores, key=scores.get)
+    if scores[best_category] > 0:
+        return best_category
 
-    # 2) 키워드 자체의 패턴 매칭 폴백
     for category, pattern in CATEGORY_PATTERNS.items():
         if pattern.search(noun):
             return category
@@ -167,99 +154,162 @@ def classify_category(noun: str, context_nouns: Counter) -> str:
     return "기타"
 
 
+def collect_candidate_snippets(keyword: str, texts: list[str]) -> list[str]:
+    snippets = []
+    for text in texts:
+        if keyword not in text:
+            continue
+
+        snippet = " ".join(text.split())
+        if not snippet:
+            continue
+
+        snippets.append(snippet[:220])
+        if len(snippets) >= settings.AI_REVIEW_MAX_EVIDENCE_SNIPPETS:
+            break
+
+    return snippets
+
+
 async def discover_keywords() -> dict:
-    """블로그 기반 키워드 자동 발굴 파이프라인"""
-    logger.info("키워드 발굴 시작")
+    logger.info("Keyword discovery started")
     summary = {
         "queries": len(META_QUERIES),
         "collected_posts": 0,
         "new_keywords": 0,
         "keywords": [],
+        "ai_reviewed": 0,
+        "ai_skipped_keywords": [],
+        "ai_fallback_keywords": [],
     }
 
-    # 1. 블로그 검색으로 텍스트 수집
     all_texts = []
     for query in META_QUERIES:
         items = await search_blogs(query)
         for item in items:
-            text = strip_html(item.get("title", "")) + " " + strip_html(item.get("description", ""))
+            text = strip_html(item.get("title", "")) + " " + strip_html(
+                item.get("description", "")
+            )
             all_texts.append(text)
-        logger.info(f"  '{query}': {len(items)}건 수집")
-        await asyncio.sleep(0.5)  # Rate limit 방지
+        logger.info("Collected %s blog posts for '%s'", len(items), query)
+        await asyncio.sleep(0.5)
 
     summary["collected_posts"] = len(all_texts)
-    logger.info(f"총 {len(all_texts)}개 블로그 스니펫 수집 완료")
+    logger.info("Collected %s blog texts for keyword discovery", len(all_texts))
 
     if not all_texts:
-        logger.warning("수집된 블로그 데이터 없음")
+        logger.warning("No blog texts were collected for keyword discovery")
         return summary
 
-    # 2. 명사 추출 + 빈도 집계
     noun_counter = Counter()
-    food_co_occurrence = Counter()  # 음식 문맥 공출현 횟수
-
+    food_co_occurrence = Counter()
     for text in all_texts:
         nouns = extract_nouns(text)
         unique_nouns = set(nouns)
         noun_counter.update(unique_nouns)
 
-        has_food_context = bool(unique_nouns & FOOD_CONTEXT_WORDS)
-        if has_food_context:
-            for n in unique_nouns:
-                food_co_occurrence[n] += 1
+        if unique_nouns & FOOD_CONTEXT_WORDS:
+            for noun in unique_nouns:
+                food_co_occurrence[noun] += 1
 
-    # 3. 기존 키워드 목록
     existing_db = {kw["keyword"] for kw in (get_all_keywords() or [])}
     existing_seed = set(get_flat_keywords())
     existing = existing_db | existing_seed | STOPWORDS
 
-    # 4. 필터링
     candidates = []
-    for noun, freq in noun_counter.most_common():
+    for noun, frequency in noun_counter.most_common():
         if noun in existing:
             continue
-        if freq < settings.DISCOVERY_MIN_FREQUENCY:
-            break  # most_common은 빈도 내림차순
+        if frequency < settings.DISCOVERY_MIN_FREQUENCY:
+            break
         if not is_food_specific_keyword(noun):
             continue
 
-        # 음식 문맥 공출현 비율로 부스트
-        food_ratio = food_co_occurrence.get(noun, 0) / freq if freq > 0 else 0
-        score = freq * (1.5 if food_ratio > 0.3 else 1.0)
-
+        food_ratio = food_co_occurrence.get(noun, 0) / frequency if frequency > 0 else 0
+        score = frequency * (1.5 if food_ratio > 0.3 else 1.0)
         candidates.append({
             "noun": noun,
-            "frequency": freq,
+            "frequency": frequency,
             "food_score": round(score, 1),
             "food_ratio": round(food_ratio, 2),
         })
 
-    # 점수순 정렬, 상위 N개
-    candidates.sort(key=lambda x: x["food_score"], reverse=True)
+    candidates.sort(key=lambda item: item["food_score"], reverse=True)
     candidates = candidates[: settings.DISCOVERY_MAX_NEW_KEYWORDS]
 
     if not candidates:
-        logger.info("새로 발견된 키워드 없음")
+        logger.info("No new keyword candidates passed rule-based discovery")
         return summary
 
-    # 5. 카테고리 분류 + DB 등록
     new_keywords = []
-    for c in candidates:
-        category = classify_category(c["noun"], noun_counter)
-        kw_data = {
-            "keyword": c["noun"],
+    seen_keywords = set()
+    review_limit = min(settings.AI_DISCOVERY_REVIEW_MAX_CANDIDATES, len(candidates))
+
+    for index, candidate in enumerate(candidates):
+        original_keyword = candidate["noun"]
+        resolved_keyword = original_keyword
+        category = classify_category(original_keyword, noun_counter)
+
+        if settings.AI_REVIEW_ENABLED and index < review_limit:
+            try:
+                review = await review_discovered_keyword(
+                    DiscoveryReviewPayload(
+                        keyword=original_keyword,
+                        frequency=candidate["frequency"],
+                        food_ratio=candidate["food_ratio"],
+                        category_hint=category,
+                        evidence_snippets=collect_candidate_snippets(
+                            original_keyword,
+                            all_texts,
+                        ),
+                    )
+                )
+                summary["ai_reviewed"] += 1
+
+                if (
+                    review.verdict != "accept"
+                    or review.confidence < settings.AI_REVIEW_MIN_CONFIDENCE
+                ):
+                    summary["ai_skipped_keywords"].append(original_keyword)
+                    logger.info(
+                        "AI skipped discovered keyword '%s': %s",
+                        original_keyword,
+                        review.reason,
+                    )
+                    continue
+
+                resolved_keyword = review.canonical_keyword or original_keyword
+                if review.category != "기타" or category == "기타":
+                    category = review.category
+            except AIReviewError as exc:
+                summary["ai_fallback_keywords"].append(original_keyword)
+                logger.warning(
+                    "AI review failed for discovered keyword '%s', using rules: %s",
+                    original_keyword,
+                    exc,
+                )
+
+        if resolved_keyword in existing or resolved_keyword in seen_keywords:
+            logger.info("Skipping duplicate discovered keyword '%s'", resolved_keyword)
+            continue
+
+        new_keywords.append({
+            "keyword": resolved_keyword,
             "category": category,
             "is_active": True,
             "baseline_volume": 0,
-        }
-        new_keywords.append(kw_data)
+        })
+        seen_keywords.add(resolved_keyword)
         logger.info(
-            f"  새 키워드 발견: '{c['noun']}' (빈도={c['frequency']}, "
-            f"음식점수={c['food_score']}, 카테고리={category})"
+            "Discovered keyword '%s' (freq=%s, score=%s, category=%s)",
+            resolved_keyword,
+            candidate["frequency"],
+            candidate["food_score"],
+            category,
         )
 
     insert_keywords(new_keywords)
     summary["new_keywords"] = len(new_keywords)
-    summary["keywords"] = [kw["keyword"] for kw in new_keywords]
-    logger.info(f"키워드 {len(new_keywords)}개 DB 등록 완료")
+    summary["keywords"] = [keyword["keyword"] for keyword in new_keywords]
+    logger.info("Stored %s discovered keywords", len(new_keywords))
     return summary

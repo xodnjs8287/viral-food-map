@@ -34,6 +34,13 @@ def _detect_app_env() -> str:
     return "development"
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Settings:
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
@@ -68,6 +75,31 @@ class Settings:
     )
     YOMECHU_ENRICH_BATCH_SIZE: int = int(
         os.getenv("YOMECHU_ENRICH_BATCH_SIZE", "100")
+    )
+    AI_REVIEW_API_URL: str = os.getenv(
+        "AI_REVIEW_API_URL",
+        "https://api.openai.com/v1/chat/completions",
+    )
+    AI_REVIEW_API_KEY: str = os.getenv("AI_REVIEW_API_KEY", "")
+    AI_REVIEW_MODEL: str = os.getenv("AI_REVIEW_MODEL", "")
+    AI_REVIEW_ENABLED: bool = _env_bool(
+        "AI_REVIEW_ENABLED",
+        default=bool(
+            os.getenv("AI_REVIEW_API_KEY", "").strip()
+            and os.getenv("AI_REVIEW_MODEL", "").strip()
+        ),
+    )
+    AI_REVIEW_TIMEOUT_SECONDS: int = int(
+        os.getenv("AI_REVIEW_TIMEOUT_SECONDS", "15")
+    )
+    AI_REVIEW_MIN_CONFIDENCE: float = float(
+        os.getenv("AI_REVIEW_MIN_CONFIDENCE", "0.7")
+    )
+    AI_REVIEW_MAX_EVIDENCE_SNIPPETS: int = int(
+        os.getenv("AI_REVIEW_MAX_EVIDENCE_SNIPPETS", "4")
+    )
+    AI_DISCOVERY_REVIEW_MAX_CANDIDATES: int = int(
+        os.getenv("AI_DISCOVERY_REVIEW_MAX_CANDIDATES", "5")
     )
 
 
