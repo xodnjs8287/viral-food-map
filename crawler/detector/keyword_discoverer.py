@@ -1,3 +1,4 @@
+import asyncio
 import re
 import logging
 from collections import Counter
@@ -65,6 +66,25 @@ async def search_blogs(query: str, display: int = 30) -> list[dict]:
             )
             resp.raise_for_status()
             return resp.json().get("items", [])
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            logger.warning(f"블로그 검색 Rate Limit ({query}), 2초 대기 후 재시도")
+            await asyncio.sleep(2)
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        NAVER_BLOG_URL,
+                        params={"query": query, "display": display, "sort": "date"},
+                        headers=headers,
+                        timeout=15,
+                    )
+                    resp.raise_for_status()
+                    return resp.json().get("items", [])
+            except Exception:
+                logger.error(f"블로그 검색 재시도 실패 ({query})")
+                return []
+        logger.error(f"블로그 검색 실패 ({query}): {e}")
+        return []
     except Exception as e:
         logger.error(f"블로그 검색 실패 ({query}): {e}")
         return []
@@ -113,14 +133,37 @@ def extract_nouns(text: str) -> list[str]:
     return nouns
 
 
+CATEGORY_PATTERNS = {
+    "디저트": re.compile(
+        r"(케이크|마카롱|쿠키|크림|타르트|롤|파이|떡케이크|찹쌀|약과|탕후루|초콜릿|도넛|푸딩|카눌레|크로플)"
+    ),
+    "음료": re.compile(
+        r"(라떼|에이드|주스|버블|보바|스무디|아이스티|하이볼|아인슈페너)"
+    ),
+    "식사": re.compile(
+        r"(덮밥|국수|라면|볶음|찌개|돈까스|파스타|초밥|샌드위치|마라탕|마라샹궈|겹살)"
+    ),
+    "간식": re.compile(
+        r"(호떡|붕어빵|계란빵|핫도그|츄러스|꽈배기|타코야키|토스트|순대|떡볶이)"
+    ),
+}
+
+
 def classify_category(noun: str, context_nouns: Counter) -> str:
-    """주변 명사 빈도 기반 카테고리 추정"""
+    """카테고리 추정: 컨텍스트 기반 → 패턴 매칭 폴백"""
+    # 1) 주변 명사 빈도 기반
     scores = {}
     for category, signals in CATEGORY_SIGNALS.items():
         scores[category] = sum(context_nouns.get(s, 0) for s in signals)
     best = max(scores, key=scores.get)
     if scores[best] > 0:
         return best
+
+    # 2) 키워드 자체의 패턴 매칭 폴백
+    for category, pattern in CATEGORY_PATTERNS.items():
+        if pattern.search(noun):
+            return category
+
     return "기타"
 
 
@@ -142,6 +185,7 @@ async def discover_keywords() -> dict:
             text = strip_html(item.get("title", "")) + " " + strip_html(item.get("description", ""))
             all_texts.append(text)
         logger.info(f"  '{query}': {len(items)}건 수집")
+        await asyncio.sleep(0.5)  # Rate limit 방지
 
     summary["collected_posts"] = len(all_texts)
     logger.info(f"총 {len(all_texts)}개 블로그 스니펫 수집 완료")

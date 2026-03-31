@@ -483,13 +483,26 @@ def normalize_keyword(keyword: str) -> str:
 
 
 def is_food_like_token(token: str, tag: str = "NNG") -> bool:
-    """음식명일 가능성이 높은 토큰인지 판별"""
+    """음식명일 가능성이 높은 토큰인지 판별
+
+    단순 길이(>=3)만으로 통과시키면 '길거리', '치킨' 같은 일반 명사가
+    키워드 후보로 올라오므로, 음식 신호(접두사/접미사/시드)가 있는
+    토큰만 허용한다.
+    """
     normalized = normalize_keyword(token)
-    if len(normalized) >= 3:
+    if normalized in _SEED_KEYWORD_SET:
         return True
+    if normalized in STOPWORDS or normalized in GENERIC_FOOD_KEYWORDS:
+        return False
     if tag == "NNP":
         return True
-    return normalized.endswith(FOOD_SUFFIXES)
+    if normalized.startswith(FOOD_PREFIXES):
+        return True
+    if normalized.endswith(FOOD_SUFFIXES) and len(normalized) > 1:
+        return True
+    if any(signal in normalized for signal in _FOOD_SIGNAL_TERMS):
+        return True
+    return False
 
 
 def is_generic_keyword(keyword: str) -> bool:
