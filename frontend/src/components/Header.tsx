@@ -14,7 +14,10 @@ export default function Header({ showBack, rightSlot, bottomSlot }: HeaderProps)
   const router = useRouter();
 
   return (
-    <header className="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm relative">
+    <header
+      className="sticky top-0 z-[60] isolate bg-white border-b border-gray-100 shadow-sm relative"
+      style={{ paddingTop: "var(--safe-top)" }}
+    >
       <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-center">
         {showBack && (
           <button

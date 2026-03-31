@@ -15,7 +15,7 @@ export default function PrivacyPage() {
   return (
     <>
       <Header showBack />
-      <main className="max-w-lg mx-auto px-4 py-6 pb-24">
+      <main className="page-with-bottom-nav max-w-lg mx-auto px-4 py-6">
         <h2 className="text-xl font-bold text-gray-900 mb-1">개인정보처리방침</h2>
         <p className="text-xs text-gray-400 mb-6">최종 수정일: 2026년 3월 25일</p>
 

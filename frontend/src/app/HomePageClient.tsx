@@ -494,7 +494,7 @@ export default function HomePageClient({
           />
         }
       />
-      <main className="max-w-lg mx-auto px-4 py-4">
+      <main className="page-with-bottom-nav max-w-lg mx-auto px-4 py-4">
         <section className="mb-6">
           <div className="bg-gradient-to-br from-purple-400 to-blue-400 rounded-2xl px-6 py-6 text-white">
             <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-white/90">

@@ -131,7 +131,7 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
   return (
     <>
       <Header />
-      <main className="max-w-lg mx-auto px-4 py-4 space-y-3">
+      <main className="page-with-bottom-nav max-w-lg mx-auto px-4 py-4 space-y-3">
         <div className="flex gap-2 overflow-x-auto pb-1 pr-4 scrollbar-hide">
           <button
             onClick={() => setSelectedTrendId("all")}

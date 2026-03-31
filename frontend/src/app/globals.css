@@ -8,6 +8,10 @@
 :root {
   --primary: #9B7DD4;
   --secondary: #8BACD8;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --bottom-nav-height: 64px;
+  --bottom-nav-offset: calc(var(--bottom-nav-height) + var(--safe-bottom));
 }
 
 body {
@@ -20,7 +24,13 @@ body {
     sans-serif;
   font-weight: 500;
   background: #fafafa;
+  min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
+}
+
+html.native-app,
+html.native-app body {
+  overscroll-behavior-y: none;
 }
 
 .card-hover {
@@ -127,4 +137,12 @@ body {
 
 .animate-reel-glow {
   animation: reel-glow 1.15s ease-in-out infinite;
+}
+
+.page-with-bottom-nav {
+  padding-bottom: calc(var(--bottom-nav-offset) + 16px);
+}
+
+.bottom-nav-floating-offset {
+  bottom: calc(var(--bottom-nav-offset) + 16px);
 }

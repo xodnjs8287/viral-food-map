@@ -42,6 +42,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: "#9B7DD4",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -80,7 +81,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: structuredData }}
         />
       </head>
-      <body className="bg-gray-50 min-h-screen pb-16">
+      <body className="bg-gray-50 min-h-screen">
         <NativeInitializer />
         <PageViewTracker />
         {children}

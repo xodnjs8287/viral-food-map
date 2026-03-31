@@ -342,7 +342,7 @@ export default function ReportForm({ initialTrends }: ReportFormProps) {
       </button>
 
       {submitted && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium animate-slide-up whitespace-nowrap">
+        <div className="fixed bottom-nav-floating-offset left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium animate-slide-up whitespace-nowrap">
           ✅ &apos;{submittedStoreName}&apos; 제보 완료! 24시간 내 지도에 반영돼요
         </div>
       )}

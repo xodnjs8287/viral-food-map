@@ -137,7 +137,7 @@ export default function TrendDetailPageClient({
     return (
       <>
         <Header showBack />
-        <main className="max-w-lg mx-auto px-4 py-12 text-center text-gray-400">
+        <main className="page-with-bottom-nav max-w-lg mx-auto px-4 py-12 text-center text-gray-400">
           <p className="text-4xl mb-3">😅</p>
           <p>트렌드를 찾을 수 없어요</p>
         </main>
@@ -168,7 +168,7 @@ export default function TrendDetailPageClient({
   return (
     <>
       <Header showBack />
-      <main className="max-w-lg mx-auto px-4 py-4 space-y-4">
+      <main className="page-with-bottom-nav max-w-lg mx-auto px-4 py-4 space-y-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h2 className="text-xl font-bold text-gray-900">{initialTrend.name}</h2>

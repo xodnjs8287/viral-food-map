@@ -5,7 +5,7 @@ export default function YomechuShareNotFound() {
   return (
     <>
       <Header showBack />
-      <main className="mx-auto flex max-w-lg flex-col gap-8 px-4 py-12">
+      <main className="page-with-bottom-nav mx-auto flex max-w-lg flex-col gap-8 px-4 py-12">
         <section className="rounded-[32px] border border-gray-200 bg-white px-6 py-8 text-center shadow-sm">
           <p className="text-lg font-bold text-gray-900">
             공유된 추천 결과를 찾을 수 없어요

@@ -114,7 +114,7 @@ export default function YomechuSharePageClient({
     return (
       <>
         <Header />
-        <main className="mx-auto flex max-w-lg flex-col gap-8 px-4 py-12">
+        <main className="page-with-bottom-nav mx-auto flex max-w-lg flex-col gap-8 px-4 py-12">
           <section className="rounded-[32px] border border-white/20 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.18),_transparent_35%),linear-gradient(160deg,_#111827_0%,_#160f2d_55%,_#10203c_100%)] px-6 py-8 text-center text-white shadow-[0_30px_80px_rgba(17,24,39,0.55)]">
             <p className="text-lg font-bold text-white">추천 결과를 불러오지 못했어요</p>
             <p className="mt-2 break-keep text-sm leading-6 text-white/68">
@@ -136,7 +136,7 @@ export default function YomechuSharePageClient({
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-lg px-4 py-4">
+      <main className="page-with-bottom-nav mx-auto max-w-lg px-4 py-4">
         <motion.section
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}

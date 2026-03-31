@@ -56,8 +56,14 @@ export default function BottomNav() {
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 shadow-lg">
-      <div className="max-w-lg mx-auto flex justify-around py-2">
+    <nav
+      className="fixed inset-x-0 bottom-0 z-[60] isolate bg-white border-t border-gray-200 shadow-lg"
+      style={{
+        minHeight: "calc(var(--bottom-nav-height) + var(--safe-bottom))",
+        paddingBottom: "var(--safe-bottom)",
+      }}
+    >
+      <div className="max-w-lg mx-auto flex min-h-[var(--bottom-nav-height)] items-center justify-around px-2 py-2">
         {navItems.map((item) => {
           const isActive =
             item.href === "/"
