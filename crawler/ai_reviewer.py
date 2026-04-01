@@ -47,6 +47,7 @@ class TrendReviewResult:
     category: str
     reason: str
     canonical_keyword: str | None = None
+    description: str | None = None
     model: str | None = None
 
 
@@ -80,6 +81,15 @@ def _normalize_keyword(value: Any, original_keyword: str) -> str | None:
     if not keyword or keyword == original_keyword:
         return None
     return keyword
+
+
+def _normalize_description(value: Any, original_keyword: str) -> str | None:
+    description = " ".join(str(value or "").split())
+    if not description or description == original_keyword:
+        return None
+    if len(description) > 140:
+        description = f"{description[:137].rstrip()}..."
+    return description
 
 
 def _extract_json_blob(content: str) -> dict[str, Any] | list[dict[str, Any]]:
@@ -158,6 +168,10 @@ def _coerce_result(
             raw.get("canonical_keyword"),
             original_keyword=original_keyword,
         ),
+        description=_normalize_description(
+            raw.get("description"),
+            original_keyword=original_keyword,
+        ),
         model=settings.AI_REVIEW_MODEL,
     )
 
@@ -222,6 +236,7 @@ def _fallback_result_map(
             confidence=0.0,
             category=payload.category_hint,
             reason="result missing",
+            description=None,
             model=settings.AI_REVIEW_MODEL,
         )
     return results
@@ -266,9 +281,13 @@ async def review_trend_candidates(
         "If multiple candidates refer to the same food using abbreviation, spacing variation, or synonym, "
         "set canonical_keyword so they point to the same normalized expression. "
         "Prefer the most common consumer-facing expression among the provided candidates when deciding a canonical cluster. "
+        "For accepted keywords, also write a short Korean description for end users in 1-2 sentences. "
+        "The description should briefly explain what the food is and why people are looking for it now. "
+        "Keep it factual, concise, and avoid markdown, quotes, hashtags, and fabricated numbers. "
+        "For reject or review verdicts, description can be an empty string. "
         "Category must be one of: 디저트, 음료, 식사, 간식, 기타. "
         "Respond with JSON only using the shape "
-        '{"results":[{"keyword":"...","verdict":"accept|reject|review","confidence":0.0,"category":"...","reason":"...","canonical_keyword":"..."}]}.'
+        '{"results":[{"keyword":"...","verdict":"accept|reject|review","confidence":0.0,"category":"...","reason":"...","canonical_keyword":"...","description":"..."}]}.'
     )
     raw = await _request_batch_review(
         system_prompt=system_prompt,

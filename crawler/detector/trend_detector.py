@@ -143,6 +143,38 @@ def _is_ai_accept(review: TrendReviewResult) -> bool:
     )
 
 
+def _select_ai_description(
+    display_keyword: str,
+    group_candidates: list[dict],
+    review_results: dict[str, TrendReviewResult],
+) -> str | None:
+    best_description: str | None = None
+    best_score = (-1, -1.0, -1)
+
+    for candidate in group_candidates:
+        keyword = clean_display_keyword(candidate.get("keyword"))
+        if not keyword:
+            continue
+
+        review = review_results.get(keyword)
+        if review is None or not _is_ai_accept(review) or not review.description:
+            continue
+
+        matches_display_keyword = int(
+            keyword == display_keyword or review.canonical_keyword == display_keyword
+        )
+        score = (
+            matches_display_keyword,
+            review.confidence,
+            len(review.description),
+        )
+        if score > best_score:
+            best_score = score
+            best_description = review.description
+
+    return best_description
+
+
 def _build_summary() -> dict:
     _, remaining_today = get_automation_ai_budget_snapshot()
     return {
@@ -154,6 +186,7 @@ def _build_summary() -> dict:
         "confirmed": 0,
         "stored_trends": 0,
         "stored_stores": 0,
+        "generated_descriptions": 0,
         "confirmed_keywords": [],
         "deactivated_trends": [],
         "ai_reviewed": 0,
@@ -580,6 +613,11 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             key=lambda item: float(item.get("score", 0.0)),
         )
         category = representative_candidate.get("category") or DEFAULT_CATEGORY
+        ai_description = _select_ai_description(
+            display_keyword,
+            group_candidates,
+            review_results,
+        )
         search_terms = dedupe_terms(
             [
                 display_keyword,
@@ -669,6 +707,10 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             if image_url:
                 trend_data["image_url"] = image_url
 
+        if not trend_data["description"] and ai_description:
+            trend_data["description"] = ai_description
+            summary["generated_descriptions"] += 1
+
         upsert_trend(trend_data)
         summary["stored_trends"] += 1
 
@@ -685,8 +727,9 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
     summary["deactivated_trends"] = _deactivate_stale_trends(deduped_confirmed_keywords)
 
     logger.info(
-        "=== trend detection finished: %s confirmed, %s stores ===",
+        "=== trend detection finished: %s confirmed, %s stores, %s descriptions ===",
         summary["confirmed"],
         summary["stored_stores"],
+        summary["generated_descriptions"],
     )
     return summary

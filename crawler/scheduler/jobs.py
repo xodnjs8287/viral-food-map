@@ -48,6 +48,7 @@ TREND_LABELS = {
     "ai_rejected_details": "AI 거절 상세",
     "ai_review_details": "AI 보류 상세",
     "ai_fallback_details": "AI fallback 상세",
+    "generated_descriptions": "AI 설명 생성",
 }
 
 DISCOVERY_LABELS = {
