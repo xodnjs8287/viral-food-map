@@ -9,6 +9,7 @@ import type {
 
 const DEFAULT_PRODUCTION_CRAWLER_BASE_URL =
   "https://silly-donnamarie-aiproject-41bab04f.koyeb.app";
+const YOMECHU_SPIN_TIMEOUT_MS = 12000;
 
 function resolveCrawlerBaseUrl() {
   const configuredBaseUrl =
@@ -205,13 +206,34 @@ export async function fetchYomechuSpin(payload: {
     throw new Error("크롤러 API 주소가 설정되지 않았습니다.");
   }
 
-  const response = await fetch(`${CRAWLER_BASE_URL}/api/yomechu/spin`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    YOMECHU_SPIN_TIMEOUT_MS
+  );
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${CRAWLER_BASE_URL}/api/yomechu/spin`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(
+        "요메추 추천이 지연되고 있습니다. 잠시 후 다시 시도해 주세요."
+      );
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     const fallbackMessage = "요메추 추천을 불러오지 못했습니다.";
