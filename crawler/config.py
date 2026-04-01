@@ -6,6 +6,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _env_csv_ints(name: str, default: str) -> list[int]:
+    raw = os.getenv(name, default)
+    values: list[int] = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        values.append(int(item))
+    return values
+
+
 def _detect_app_env() -> str:
     explicit_env = (
         os.getenv("APP_ENV")
@@ -75,6 +86,24 @@ class Settings:
     DISCOVERY_MAX_NEW_KEYWORDS: int = int(
         os.getenv("DISCOVERY_MAX_NEW_KEYWORDS", "10")
     )
+    AI_AUTOMATION_DAILY_LIMIT: int = int(
+        os.getenv("AI_AUTOMATION_DAILY_LIMIT", "20")
+    )
+    SCHEDULER_TIMEZONE: str = os.getenv("SCHEDULER_TIMEZONE", "Asia/Seoul")
+    TREND_DETECTION_SCHEDULE_HOURS: list[int] = _env_csv_ints(
+        "TREND_DETECTION_SCHEDULE_HOURS",
+        "7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22",
+    )
+    TREND_DETECTION_SCHEDULE_MINUTE: int = int(
+        os.getenv("TREND_DETECTION_SCHEDULE_MINUTE", "0")
+    )
+    DISCOVERY_SCHEDULE_HOURS: list[int] = _env_csv_ints(
+        "DISCOVERY_SCHEDULE_HOURS",
+        "0,6,12,18",
+    )
+    DISCOVERY_SCHEDULE_MINUTE: int = int(
+        os.getenv("DISCOVERY_SCHEDULE_MINUTE", "30")
+    )
     YOMECHU_ENRICH_INTERVAL_HOURS: int = int(
         os.getenv("YOMECHU_ENRICH_INTERVAL_HOURS", "4")
     )
@@ -108,7 +137,10 @@ class Settings:
         os.getenv("AI_REVIEW_MAX_EVIDENCE_SNIPPETS", "4")
     )
     AI_DISCOVERY_REVIEW_MAX_CANDIDATES: int = int(
-        os.getenv("AI_DISCOVERY_REVIEW_MAX_CANDIDATES", "5")
+        os.getenv(
+            "AI_DISCOVERY_REVIEW_MAX_CANDIDATES",
+            str(max(int(os.getenv("DISCOVERY_MAX_NEW_KEYWORDS", "10")), 10)),
+        )
     )
 
 

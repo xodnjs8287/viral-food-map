@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -16,7 +17,7 @@ from notifications import send_discord_message, send_push_notifications
 
 logger = logging.getLogger(__name__)
 
-scheduler = BackgroundScheduler()
+scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.SCHEDULER_TIMEZONE))
 store_update_lock = threading.Lock()
 yomechu_enrich_lock = threading.Lock()
 
@@ -30,27 +31,37 @@ TREND_LABELS = {
     "keywords": "모니터링 키워드",
     "db_keywords": "DB 키워드",
     "seed_keywords": "시드 키워드",
-    "candidates": "급등 후보",
-    "rank_candidates": "순위 후보",
+    "candidates": "후보 키워드",
+    "rank_candidates": "랭크 후보",
     "confirmed": "확정 트렌드",
     "stored_trends": "저장 트렌드",
-    "stored_stores": "등록 판매처",
+    "stored_stores": "저장 판매처",
     "confirmed_keywords": "확정 키워드",
     "deactivated_trends": "비활성 트렌드",
-    "ai_reviewed": "AI 심사 수",
-    "ai_accepted": "AI 승인 수",
+    "ai_reviewed": "AI 검토 후보",
+    "ai_accepted": "AI 통과 후보",
+    "ai_calls_used": "AI 호출 사용",
+    "ai_calls_remaining": "AI 호출 잔여",
+    "alias_matches": "별칭 매칭",
+    "budget_exhausted": "예산 소진",
+    "canonicalized_keywords": "대표명 매핑",
     "ai_rejected_details": "AI 거절 상세",
     "ai_review_details": "AI 보류 상세",
     "ai_fallback_details": "AI fallback 상세",
 }
 
 DISCOVERY_LABELS = {
-    "queries": "검색 쿼리",
+    "queries": "메타 쿼리",
     "collected_posts": "수집 포스트",
     "new_keywords": "신규 키워드",
     "keywords": "발굴 키워드",
-    "ai_reviewed": "AI 심사 수",
-    "ai_accepted": "AI 승인 수",
+    "ai_reviewed": "AI 검토 후보",
+    "ai_accepted": "AI 통과 후보",
+    "ai_calls_used": "AI 호출 사용",
+    "ai_calls_remaining": "AI 호출 잔여",
+    "alias_matches": "별칭 매칭",
+    "budget_exhausted": "예산 소진",
+    "canonicalized_keywords": "대표명 매핑",
     "ai_rejected_details": "AI 거절 상세",
     "ai_review_details": "AI 보류 상세",
     "ai_fallback_details": "AI fallback 상세",
@@ -60,7 +71,7 @@ STORE_UPDATE_LABELS = {
     "target_trends": "대상 트렌드",
     "processed_trends": "처리 트렌드",
     "added_stores": "추가 판매처",
-    "changed_trends": "추가 발생 트렌드",
+    "changed_trends": "변경 발생 트렌드",
 }
 
 YOMECHU_LABELS = {
@@ -80,9 +91,9 @@ def _format_summary_lines(summary: dict, labels: dict[str, str]) -> list[str]:
     lines: list[str] = []
     for key, label in labels.items():
         value = summary.get(key)
-        if value in (None, "", [], {}):
+        if value in (None, "", [], {}, False):
             continue
-        if key.startswith("ai_") and value == 0:
+        if key.startswith("ai_") and key != "ai_calls_remaining" and value == 0:
             continue
 
         if isinstance(value, list):
@@ -96,7 +107,9 @@ def _format_summary_lines(summary: dict, labels: dict[str, str]) -> list[str]:
                 lines.append("\n".join(detail_lines))
                 continue
 
-            formatted = ", ".join(str(item) for item in value)
+            formatted = ", ".join(str(item) for item in value[:MAX_DETAIL_LINES])
+            if len(value) > MAX_DETAIL_LINES:
+                formatted = f"{formatted}, 외 {len(value) - MAX_DETAIL_LINES}건"
         else:
             formatted = str(value)
 
@@ -123,13 +136,36 @@ def _build_job_message(
     return "\n".join(lines)
 
 
+def _format_hour_minute(hour: int, minute: int) -> str:
+    return f"{hour:02d}:{minute:02d}"
+
+
+def get_scheduler_description() -> dict[str, str]:
+    trend_hours = sorted(settings.TREND_DETECTION_SCHEDULE_HOURS)
+    trend_schedule = (
+        f"{_format_hour_minute(trend_hours[0], settings.TREND_DETECTION_SCHEDULE_MINUTE)}"
+        f"~{_format_hour_minute(trend_hours[-1], settings.TREND_DETECTION_SCHEDULE_MINUTE)} 매시"
+    )
+    discovery_schedule = ", ".join(
+        _format_hour_minute(hour, settings.DISCOVERY_SCHEDULE_MINUTE)
+        for hour in sorted(settings.DISCOVERY_SCHEDULE_HOURS)
+    )
+    return {
+        "timezone": settings.SCHEDULER_TIMEZONE,
+        "trend_detection": trend_schedule,
+        "keyword_discovery": discovery_schedule,
+        "store_update_minutes": str(settings.STORE_UPDATE_INTERVAL_MINUTES),
+        "daily_ai_limit": str(settings.AI_AUTOMATION_DAILY_LIMIT),
+    }
+
+
 async def run_trend_detection_job(trigger: str = "scheduler") -> dict:
     job_name = TREND_JOB_NAME
-    logger.info("%s 트리거 %s 시작", trigger, job_name)
+    logger.info("%s started (%s)", job_name, trigger)
     await send_discord_message(_build_job_message(job_name, trigger, "시작"))
 
     try:
-        summary = await detect_trends()
+        summary = await detect_trends(trigger=trigger)
         await send_discord_message(
             _build_job_message(job_name, trigger, "완료", summary=summary)
         )
@@ -150,56 +186,48 @@ async def run_trend_detection_job(trigger: str = "scheduler") -> dict:
                 try:
                     send_push_notifications(row["name"], row["id"])
                 except Exception as push_exc:
-                    logger.warning("웹 푸시 발송 오류 (%s): %s", row["name"], push_exc)
+                    logger.warning(
+                        "Push notification failed for %s: %s",
+                        row["name"],
+                        push_exc,
+                    )
 
         return summary
     except Exception as exc:
-        logger.exception("%s 트리거 %s 실패", trigger, job_name)
+        logger.exception("%s failed (%s)", job_name, trigger)
         await report_exception_to_discord(
             f"{job_name} 실패",
             exc,
-            details={"트리거": trigger},
+            details={"trigger": trigger},
         )
         raise
 
 
 async def run_keyword_discovery_job(trigger: str = "scheduler") -> dict:
     job_name = DISCOVERY_JOB_NAME
-    logger.info("%s 트리거 %s 시작", trigger, job_name)
+    logger.info("%s started (%s)", job_name, trigger)
     await send_discord_message(_build_job_message(job_name, trigger, "시작"))
 
     try:
-        summary = await discover_keywords()
+        summary = await discover_keywords(trigger=trigger)
         await send_discord_message(
             _build_job_message(job_name, trigger, "완료", summary=summary)
         )
         return summary
     except Exception as exc:
-        logger.exception("%s 트리거 %s 실패", trigger, job_name)
+        logger.exception("%s failed (%s)", job_name, trigger)
         await report_exception_to_discord(
             f"{job_name} 실패",
             exc,
-            details={"트리거": trigger},
+            details={"trigger": trigger},
         )
         raise
-
-
-async def run_startup_bootstrap_job() -> None:
-    """Run keyword discovery before the first startup trend detection."""
-    try:
-        await run_keyword_discovery_job(trigger="startup")
-    except Exception:
-        logger.info(
-            "시작 시 키워드 발굴 실패; 트렌드 감지로 계속 진행"
-        )
-
-    await run_trend_detection_job(trigger="startup")
 
 
 async def run_store_update_job(trigger: str = "scheduler") -> dict:
     job_name = STORE_UPDATE_JOB_NAME
     if not store_update_lock.acquire(blocking=False):
-        logger.warning("%s 트리거 %s 스킵: 이전 작업이 아직 실행 중", trigger, job_name)
+        logger.warning("%s skipped because previous run is still active", job_name)
         return {
             "target_trends": 0,
             "processed_trends": 0,
@@ -208,7 +236,7 @@ async def run_store_update_job(trigger: str = "scheduler") -> dict:
             "skipped": True,
         }
 
-    logger.info("%s 트리거 %s 시작", trigger, job_name)
+    logger.info("%s started (%s)", job_name, trigger)
 
     try:
         summary = await refresh_stores_for_active_trends()
@@ -218,11 +246,11 @@ async def run_store_update_job(trigger: str = "scheduler") -> dict:
             )
         return summary
     except Exception as exc:
-        logger.exception("%s 트리거 %s 실패", trigger, job_name)
+        logger.exception("%s failed (%s)", job_name, trigger)
         await report_exception_to_discord(
             f"{job_name} 실패",
             exc,
-            details={"트리거": trigger},
+            details={"trigger": trigger},
         )
         raise
     finally:
@@ -232,14 +260,14 @@ async def run_store_update_job(trigger: str = "scheduler") -> dict:
 async def run_yomechu_enrichment_job(trigger: str = "scheduler") -> dict:
     job_name = YOMECHU_JOB_NAME
     if not settings.YOMECHU_ENRICH_ENABLED:
-        logger.info("%s 트리거 %s 스킵: 배치 비활성화", trigger, job_name)
+        logger.info("%s skipped because it is disabled", job_name)
         return {"scanned": 0, "updated": 0, "skipped": True}
 
     if not yomechu_enrich_lock.acquire(blocking=False):
-        logger.warning("%s 트리거 %s 스킵: 이전 작업이 아직 실행 중", trigger, job_name)
+        logger.warning("%s skipped because previous run is still active", job_name)
         return {"scanned": 0, "updated": 0, "skipped": True}
 
-    logger.info("%s 트리거 %s 시작", trigger, job_name)
+    logger.info("%s started (%s)", job_name, trigger)
     try:
         summary = await refresh_recent_yomechu_ratings()
         if summary.get("updated", 0) > 0:
@@ -248,11 +276,11 @@ async def run_yomechu_enrichment_job(trigger: str = "scheduler") -> dict:
             )
         return summary
     except Exception as exc:
-        logger.exception("%s 트리거 %s 실패", trigger, job_name)
+        logger.exception("%s failed (%s)", job_name, trigger)
         await report_exception_to_discord(
             f"{job_name} 실패",
             exc,
-            details={"트리거": trigger},
+            details={"trigger": trigger},
         )
         raise
     finally:
@@ -260,37 +288,37 @@ async def run_yomechu_enrichment_job(trigger: str = "scheduler") -> dict:
 
 
 def run_trend_detection():
-    logger.info("스케줄러 트렌드 감지 시작")
-    asyncio.run(run_trend_detection_job())
+    asyncio.run(run_trend_detection_job(trigger="scheduler"))
 
 
 def run_keyword_discovery():
-    logger.info("스케줄러 키워드 발굴 시작")
-    asyncio.run(run_keyword_discovery_job())
+    asyncio.run(run_keyword_discovery_job(trigger="scheduler"))
 
 
 def run_store_update():
-    logger.info("스케줄러 판매처 갱신 시작")
-    asyncio.run(run_store_update_job())
+    asyncio.run(run_store_update_job(trigger="scheduler"))
 
 
 def run_yomechu_enrichment():
-    logger.info("스케줄러 요메추 평점 보강 시작")
-    asyncio.run(run_yomechu_enrichment_job())
+    asyncio.run(run_yomechu_enrichment_job(trigger="scheduler"))
 
 
 def start_scheduler():
     scheduler.add_job(
         run_trend_detection,
-        "interval",
-        minutes=settings.CRAWL_INTERVAL_MINUTES,
+        "cron",
+        hour=",".join(str(hour) for hour in sorted(settings.TREND_DETECTION_SCHEDULE_HOURS)),
+        minute=settings.TREND_DETECTION_SCHEDULE_MINUTE,
         id="trend_detection",
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
     scheduler.add_job(
         run_keyword_discovery,
-        "interval",
-        hours=settings.DISCOVERY_INTERVAL_HOURS,
+        "cron",
+        hour=",".join(str(hour) for hour in sorted(settings.DISCOVERY_SCHEDULE_HOURS)),
+        minute=settings.DISCOVERY_SCHEDULE_MINUTE,
         id="keyword_discovery",
         replace_existing=True,
         max_instances=1,
@@ -316,17 +344,15 @@ def start_scheduler():
             coalesce=True,
         )
     scheduler.start()
-    yomechu_label = (
-        f"요메추 보강 {settings.YOMECHU_ENRICH_INTERVAL_HOURS}시간"
-        if settings.YOMECHU_ENRICH_ENABLED
-        else "요메추 보강 비활성화"
-    )
+
+    description = get_scheduler_description()
     logger.info(
-        "스케줄러 시작: 트렌드 감지 %s분 / 판매처 갱신 %s분 / 키워드 발굴 %s시간 / %s",
-        settings.CRAWL_INTERVAL_MINUTES,
-        settings.STORE_UPDATE_INTERVAL_MINUTES,
-        settings.DISCOVERY_INTERVAL_HOURS,
-        yomechu_label,
+        "Scheduler started: trend=%s, discovery=%s, store_update=%s min, ai_limit=%s/day, tz=%s",
+        description["trend_detection"],
+        description["keyword_discovery"],
+        description["store_update_minutes"],
+        description["daily_ai_limit"],
+        description["timezone"],
     )
 
 
@@ -334,4 +360,4 @@ def stop_scheduler():
     if not scheduler.running:
         return
     scheduler.shutdown()
-    logger.info("스케줄러 중지")
+    logger.info("Scheduler stopped")

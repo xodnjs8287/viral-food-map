@@ -1,8 +1,14 @@
+from __future__ import annotations
+
 import asyncio
-import httpx
-from config import settings
-from franchise_checker import is_franchise
 import logging
+import re
+
+import httpx
+
+from config import settings
+from detector.alias_manager import dedupe_terms
+from franchise_checker import is_franchise
 
 logger = logging.getLogger(__name__)
 
@@ -31,19 +37,19 @@ async def find_stores_kakao(
     radius: int | None = None,
     size: int = 15,
 ) -> list[dict]:
-    """카카오 로컬 API로 키워드 기반 판매처 검색"""
     headers = {"Authorization": f"KakaoAK {settings.KAKAO_REST_API_KEY}"}
 
-    all_stores = []
-    seen = set()
+    all_stores: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
     try:
         async with httpx.AsyncClient() as client:
             for category_group_code in KAKAO_CATEGORY_GROUP_CODES:
-                for p in range(1, 4):  # 최대 3페이지
-                    params: dict = {
+                for page in range(1, 4):
+                    params: dict[str, str | int] = {
                         "query": keyword,
                         "category_group_code": category_group_code,
-                        "page": p,
+                        "page": page,
                         "size": size,
                     }
                     if x is not None and y is not None:
@@ -53,24 +59,25 @@ async def find_stores_kakao(
                             params["radius"] = str(radius)
                             params["sort"] = "distance"
 
-                    resp = await client.get(
+                    response = await client.get(
                         KAKAO_SEARCH_URL,
                         params=params,
                         headers=headers,
                         timeout=10,
                     )
-                    resp.raise_for_status()
-                    data = resp.json()
+                    response.raise_for_status()
+                    data = response.json()
 
-                    for doc in data.get("documents", []):
-                        place_name = doc["place_name"]
+                    for document in data.get("documents", []):
+                        place_name = document["place_name"]
                         store = {
                             "name": place_name,
-                            "address": doc.get("road_address_name") or doc.get("address_name", ""),
-                            "lat": float(doc["y"]),
-                            "lng": float(doc["x"]),
-                            "phone": doc.get("phone") or None,
-                            "place_url": doc.get("place_url") or None,
+                            "address": document.get("road_address_name")
+                            or document.get("address_name", ""),
+                            "lat": float(document["y"]),
+                            "lng": float(document["x"]),
+                            "phone": document.get("phone") or None,
+                            "place_url": document.get("place_url") or None,
                             "source": "kakao_api",
                             "verified": True,
                             "is_franchise": is_franchise(place_name),
@@ -83,91 +90,93 @@ async def find_stores_kakao(
 
                     if data.get("meta", {}).get("is_end", True):
                         break
-
-    except Exception as e:
-        logger.error(f"카카오 로컬 API 오류 ({keyword}): {e}")
+    except Exception as exc:
+        logger.error("Kakao local search failed for '%s': %s", keyword, exc)
 
     return all_stores
 
 
-async def fetch_naver_rating(client: httpx.AsyncClient, store_name: str) -> float | None:
-    """네이버 플레이스에서 가게 평점 조회"""
+async def fetch_naver_rating(
+    client: httpx.AsyncClient,
+    store_name: str,
+) -> float | None:
     headers = {
         "X-Naver-Client-Id": settings.NAVER_CLIENT_ID,
         "X-Naver-Client-Secret": settings.NAVER_CLIENT_SECRET,
     }
+
     try:
-        resp = await client.get(
+        response = await client.get(
             NAVER_LOCAL_URL,
             params={"query": store_name, "display": 1},
             headers=headers,
             timeout=5,
         )
-        resp.raise_for_status()
-        data = resp.json()
-        items = data.get("items", [])
+        response.raise_for_status()
+        items = response.json().get("items", [])
         if not items:
             return None
 
-        # 네이버 플레이스 페이지에서 평점 스크래핑
         link = items[0].get("link", "")
         if not link:
             return None
 
-        page_resp = await client.get(link, timeout=5, follow_redirects=True)
-        page_text = page_resp.text
+        page_response = await client.get(link, timeout=5, follow_redirects=True)
+        page_text = page_response.text
 
-        # 평점 패턴: "별점 4.52" 또는 "rating":"4.52"
-        import re
         match = re.search(r'"rating"\s*:\s*"?(\d+\.?\d*)"?', page_text)
         if match:
             return round(float(match.group(1)), 1)
 
-        match = re.search(r'별점\s*(\d+\.?\d*)', page_text)
+        match = re.search(r"별점\s*(\d+\.?\d*)", page_text)
         if match:
             return round(float(match.group(1)), 1)
-
-    except Exception as e:
-        logger.debug(f"네이버 평점 조회 실패 ({store_name}): {e}")
+    except Exception as exc:
+        logger.debug("Naver rating fetch failed for '%s': %s", store_name, exc)
 
     return None
 
 
 async def enrich_stores_with_ratings(stores: list[dict]) -> list[dict]:
-    """판매처 목록에 네이버 평점 추가"""
     async with httpx.AsyncClient() as client:
         for store in stores:
-            rating = await fetch_naver_rating(client, store["name"])
-            store["rating"] = rating
+            store["rating"] = await fetch_naver_rating(client, store["name"])
             await asyncio.sleep(0.1)
-    rated = sum(1 for s in stores if s.get("rating"))
-    logger.info(f"평점 수집 완료: {rated}/{len(stores)}곳")
+
+    rated_count = sum(1 for store in stores if store.get("rating") is not None)
+    logger.info("Collected ratings for %s/%s stores", rated_count, len(stores))
     return stores
 
 
-async def find_stores_nationwide(keyword: str) -> list[dict]:
-    """전국 주요 도시에서 판매처 검색 (중복 제거)"""
-    all_stores = []
-    seen = set()
+async def find_stores_nationwide(search_terms: list[str] | str) -> list[dict]:
+    terms = (
+        dedupe_terms(search_terms)
+        if isinstance(search_terms, list)
+        else dedupe_terms([search_terms])
+    )
+    all_stores: list[dict] = []
+    seen: set[tuple[str, str]] = set()
 
-    for city in MAJOR_CITIES:
-        city_stores = await find_stores_kakao(
-            keyword=keyword,
-            x=city["x"],
-            y=city["y"],
-            radius=city["radius"],
-        )
-        for store in city_stores:
-            key = (store["name"], store["address"])
-            if key not in seen:
+    for keyword in terms:
+        for city in MAJOR_CITIES:
+            city_stores = await find_stores_kakao(
+                keyword=keyword,
+                x=city["x"],
+                y=city["y"],
+                radius=city["radius"],
+            )
+            for store in city_stores:
+                key = (store["name"], store["address"])
+                if key in seen:
+                    continue
                 seen.add(key)
                 all_stores.append(store)
+            await asyncio.sleep(0.1)
 
-        await asyncio.sleep(0.1)  # rate limit 방지
-
-    logger.info(f"'{keyword}' 전국 판매처 {len(all_stores)}곳 수집 ({len(MAJOR_CITIES)}개 도시)")
-
-    # 네이버 평점 추가
-    all_stores = await enrich_stores_with_ratings(all_stores)
-
-    return all_stores
+    logger.info(
+        "Collected %s stores for %s search terms across %s cities",
+        len(all_stores),
+        len(terms),
+        len(MAJOR_CITIES),
+    )
+    return await enrich_stores_with_ratings(all_stores)

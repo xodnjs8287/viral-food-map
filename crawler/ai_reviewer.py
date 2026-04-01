@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
 import httpx
 
 from config import settings
+from detector.alias_manager import clean_display_keyword
 
 logger = logging.getLogger(__name__)
 
@@ -76,35 +76,40 @@ def _normalize_category(value: Any, fallback: str = "기타") -> str:
 
 
 def _normalize_keyword(value: Any, original_keyword: str) -> str | None:
-    keyword = re.sub(r"\s+", " ", str(value or "")).strip()
+    keyword = clean_display_keyword(str(value or ""))
     if not keyword or keyword == original_keyword:
         return None
     return keyword
 
 
-def _extract_json_blob(content: str) -> dict[str, Any]:
+def _extract_json_blob(content: str) -> dict[str, Any] | list[dict[str, Any]]:
     stripped = content.strip()
     if not stripped:
         raise AIReviewError("empty AI response")
 
     try:
         data = json.loads(stripped)
-        if isinstance(data, dict):
+        if isinstance(data, (dict, list)):
             return data
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r"\{.*\}", stripped, re.DOTALL)
-    if not match:
-        raise AIReviewError("no JSON object found in AI response")
+    start_positions = [index for index in (stripped.find("{"), stripped.find("[")) if index >= 0]
+    if not start_positions:
+        raise AIReviewError("no JSON payload found in AI response")
+
+    start = min(start_positions)
+    end = max(stripped.rfind("}"), stripped.rfind("]"))
+    if end < start:
+        raise AIReviewError("incomplete JSON payload in AI response")
 
     try:
-        data = json.loads(match.group(0))
+        data = json.loads(stripped[start : end + 1])
     except json.JSONDecodeError as exc:
-        raise AIReviewError("invalid JSON object in AI response") from exc
+        raise AIReviewError("invalid JSON payload in AI response") from exc
 
-    if not isinstance(data, dict):
-        raise AIReviewError("AI response JSON must be an object")
+    if not isinstance(data, (dict, list)):
+        raise AIReviewError("AI response JSON must be an object or list")
     return data
 
 
@@ -142,7 +147,7 @@ def _coerce_result(
 
     reason = " ".join(str(raw.get("reason", "")).split())
     if not reason:
-        reason = "심사 사유 없음"
+        reason = "reason missing"
 
     return TrendReviewResult(
         verdict=_normalize_verdict(raw.get("verdict")),
@@ -157,20 +162,18 @@ def _coerce_result(
     )
 
 
-async def _request_review(
+async def _request_batch_review(
     *,
     system_prompt: str,
     payload: dict[str, Any],
-    original_keyword: str,
-    fallback_category: str,
-) -> TrendReviewResult:
+) -> dict[str, Any] | list[dict[str, Any]]:
     if not is_ai_review_enabled():
         raise AIReviewError("AI review is disabled or missing credentials")
 
     body = {
         "model": settings.AI_REVIEW_MODEL,
         "temperature": 0.1,
-        "max_tokens": 250,
+        "max_tokens": 1200,
         "messages": [
             {"role": "system", "content": system_prompt},
             {
@@ -195,65 +198,116 @@ async def _request_review(
     except Exception as exc:
         raise AIReviewError(f"AI review request failed: {exc}") from exc
 
-    raw = _extract_json_blob(_extract_message_content(response.json()))
-    return _coerce_result(
-        raw,
-        original_keyword=original_keyword,
-        fallback_category=fallback_category,
-    )
+    return _extract_json_blob(_extract_message_content(response.json()))
 
 
-async def review_trend_candidate(payload: TrendReviewPayload) -> TrendReviewResult:
+def _extract_results(raw: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+
+    results = raw.get("results")
+    if isinstance(results, list):
+        return [item for item in results if isinstance(item, dict)]
+
+    raise AIReviewError("AI response missing results array")
+
+
+def _fallback_result_map(
+    payloads: list[TrendReviewPayload] | list[DiscoveryReviewPayload],
+) -> dict[str, TrendReviewResult]:
+    results: dict[str, TrendReviewResult] = {}
+    for payload in payloads:
+        results[payload.keyword] = TrendReviewResult(
+            verdict="review",
+            confidence=0.0,
+            category=payload.category_hint,
+            reason="result missing",
+            model=settings.AI_REVIEW_MODEL,
+        )
+    return results
+
+
+def _coerce_result_map(
+    raw: dict[str, Any] | list[dict[str, Any]],
+    *,
+    payloads: list[TrendReviewPayload] | list[DiscoveryReviewPayload],
+) -> dict[str, TrendReviewResult]:
+    payload_map = {payload.keyword: payload for payload in payloads}
+    result_map = _fallback_result_map(payloads)
+
+    for item in _extract_results(raw):
+        keyword = clean_display_keyword(item.get("keyword"))
+        payload = payload_map.get(keyword)
+        if payload is None:
+            continue
+        result_map[keyword] = _coerce_result(
+            item,
+            original_keyword=payload.keyword,
+            fallback_category=payload.category_hint,
+        )
+
+    return result_map
+
+
+async def review_trend_candidates(
+    payloads: list[TrendReviewPayload],
+) -> dict[str, TrendReviewResult]:
+    if not payloads:
+        return {}
+
     system_prompt = (
         "You are reviewing Korean viral food trend candidates for a store-finding service. "
+        "You will receive multiple candidates at once. "
         "Accept only if the keyword is a specific food, drink, dessert, snack, or menu concept "
-        "that real users may search for and buy nearby right now. "
+        "that users may search for and buy nearby right now. "
         "Reject keywords that are non-food, too generic, just a restaurant descriptor, a place, "
-        "a person, a content format, a promotion phrase, or too ambiguous to attach stores to. "
-        "Use review when it is food-related but too generic or uncertain for automatic approval. "
+        "a person, a content format, or a promotion phrase. "
+        "Use review when the keyword is food-related but too generic or uncertain for automatic approval. "
+        "If multiple candidates refer to the same food using abbreviation, spacing variation, or synonym, "
+        "set canonical_keyword so they point to the same normalized expression. "
+        "Prefer the most common consumer-facing expression among the provided candidates when deciding a canonical cluster. "
         "Category must be one of: 디저트, 음료, 식사, 간식, 기타. "
-        "canonical_keyword should only normalize spacing or obvious synonym variants. "
-        "Respond with JSON only using keys: verdict, confidence, category, reason, canonical_keyword."
+        "Respond with JSON only using the shape "
+        '{"results":[{"keyword":"...","verdict":"accept|reject|review","confidence":0.0,"category":"...","reason":"...","canonical_keyword":"..."}]}.'
     )
-    result = await _request_review(
+    raw = await _request_batch_review(
         system_prompt=system_prompt,
-        payload=asdict(payload),
-        original_keyword=payload.keyword,
-        fallback_category=payload.category_hint,
+        payload={
+            "type": "trend_candidates",
+            "candidates": [asdict(payload) for payload in payloads],
+        },
     )
-    logger.info(
-        "AI 트렌드 심사 '%s': 판정=%s 신뢰도=%.2f 카테고리=%s",
-        payload.keyword,
-        result.verdict,
-        result.confidence,
-        result.category,
-    )
-    return result
+    result_map = _coerce_result_map(raw, payloads=payloads)
+    logger.info("AI trend batch reviewed %s candidates", len(payloads))
+    return result_map
 
 
-async def review_discovered_keyword(
-    payload: DiscoveryReviewPayload,
-) -> TrendReviewResult:
+async def review_discovered_keywords(
+    payloads: list[DiscoveryReviewPayload],
+) -> dict[str, TrendReviewResult]:
+    if not payloads:
+        return {}
+
     system_prompt = (
         "You are reviewing newly discovered Korean food keywords for a monitoring list. "
+        "You will receive multiple candidates at once. "
         "Accept only if the keyword is a distinct food or drink concept worth tracking as its own keyword. "
         "Reject keywords that are too generic, non-food, location terms, broad category names, marketing terms, "
         "or content trend words. Use review for borderline food keywords that should not be auto-added. "
+        "If multiple candidates refer to the same food using abbreviation, spacing variation, or synonym, "
+        "set canonical_keyword so they point to the same normalized expression. "
+        "Prefer the most common consumer-facing expression among the provided candidates when deciding a canonical cluster. "
         "Category must be one of: 디저트, 음료, 식사, 간식, 기타. "
-        "canonical_keyword should only normalize spacing or obvious synonym variants. "
-        "Respond with JSON only using keys: verdict, confidence, category, reason, canonical_keyword."
+        "Respond with JSON only using the shape "
+        '{"results":[{"keyword":"...","verdict":"accept|reject|review","confidence":0.0,"category":"...","reason":"...","canonical_keyword":"..."}]}.'
     )
-    result = await _request_review(
+    raw = await _request_batch_review(
         system_prompt=system_prompt,
-        payload=asdict(payload),
-        original_keyword=payload.keyword,
-        fallback_category=payload.category_hint,
+        payload={
+            "type": "discovered_keywords",
+            "candidates": [asdict(payload) for payload in payloads],
+        },
     )
-    logger.info(
-        "AI 발굴 키워드 심사 '%s': 판정=%s 신뢰도=%.2f 카테고리=%s",
-        payload.keyword,
-        result.verdict,
-        result.confidence,
-        result.category,
-    )
-    return result
+    result_map = _coerce_result_map(raw, payloads=payloads)
+    logger.info("AI discovery batch reviewed %s candidates", len(payloads))
+    return result_map

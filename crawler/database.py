@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -8,6 +9,15 @@ from supabase import Client, create_client
 from config import settings
 
 _client: Client | None = None
+logger = logging.getLogger(__name__)
+_warned_failures: set[str] = set()
+
+
+def _warn_once(key: str, message: str, exc: Exception) -> None:
+    if key in _warned_failures:
+        return
+    _warned_failures.add(key)
+    logger.warning("%s: %s", message, exc)
 
 
 def get_client() -> Client:
@@ -45,7 +55,7 @@ def get_trends_by_names(names: list[str]):
     return (
         get_client()
         .table("trends")
-        .select("id,name,category,description,image_url")
+        .select("id,name,category,description,image_url,status,peak_score,detected_at")
         .in_("name", names)
         .execute()
         .data
@@ -120,6 +130,121 @@ def update_trend_status(trend_id: str, status: str):
         .eq("id", trend_id)
         .execute()
     )
+
+
+def get_keyword_aliases():
+    try:
+        return (
+            get_client()
+            .table("keyword_aliases")
+            .select("*")
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        _warn_once("keyword_aliases_lookup", "keyword_aliases lookup unavailable", exc)
+        return []
+
+
+def upsert_keyword_aliases(rows: list[dict]):
+    if not rows:
+        return None
+
+    payload = [
+        {
+            **row,
+            "last_seen_at": datetime.now(timezone.utc).isoformat(),
+        }
+        for row in rows
+    ]
+    try:
+        return (
+            get_client()
+            .table("keyword_aliases")
+            .upsert(payload, on_conflict="alias_normalized")
+            .execute()
+        )
+    except Exception as exc:
+        _warn_once("keyword_aliases_upsert", "keyword_aliases upsert unavailable", exc)
+        return None
+
+
+def get_keyword_aliases_by_canonical_keywords(
+    canonical_keywords: list[str],
+) -> list[dict[str, Any]]:
+    if not canonical_keywords:
+        return []
+    try:
+        return (
+            get_client()
+            .table("keyword_aliases")
+            .select("*")
+            .in_("canonical_keyword", canonical_keywords)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        _warn_once(
+            "keyword_aliases_by_canonical",
+            "keyword_aliases canonical lookup unavailable",
+            exc,
+        )
+        return []
+
+
+def get_stores_by_trend_id(trend_id: str) -> list[dict[str, Any]]:
+    return (
+        get_client()
+        .table("stores")
+        .select("*")
+        .eq("trend_id", trend_id)
+        .execute()
+        .data
+        or []
+    )
+
+
+def delete_stores_by_trend_id(trend_id: str):
+    return (
+        get_client()
+        .table("stores")
+        .delete()
+        .eq("trend_id", trend_id)
+        .execute()
+    )
+
+
+def count_ai_automation_usage(usage_date: str) -> int:
+    try:
+        response = (
+            get_client()
+            .table("ai_automation_usage")
+            .select("id", count="exact", head=True)
+            .eq("usage_date", usage_date)
+            .execute()
+        )
+        return response.count or 0
+    except Exception as exc:
+        _warn_once(
+            "ai_automation_usage_count",
+            "ai_automation_usage count unavailable",
+            exc,
+        )
+        raise
+
+
+def insert_ai_automation_usage(row: dict[str, Any]):
+    try:
+        return get_client().table("ai_automation_usage").insert(row).execute()
+    except Exception as exc:
+        _warn_once(
+            "ai_automation_usage_insert",
+            "ai_automation_usage insert unavailable",
+            exc,
+        )
+        raise
 
 
 def upsert_yomechu_places(places: list[dict[str, Any]]):
