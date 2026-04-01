@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 from config import settings
@@ -64,7 +65,34 @@ def get_trends_by_names(names: list[str]):
 
 
 def upsert_trend(trend_data: dict):
-    return get_client().table("trends").upsert(trend_data).execute()
+    try:
+        return get_client().table("trends").upsert(trend_data).execute()
+    except APIError as exc:
+        trend_name = trend_data.get("name")
+        if exc.code != "23505" or not trend_name:
+            raise
+
+        existing_trends = get_trends_by_names([trend_name])
+        existing_trend = existing_trends[0] if existing_trends else None
+        existing_trend_id = existing_trend.get("id") if existing_trend else None
+        if not existing_trend_id:
+            raise
+
+        logger.info(
+            "retrying duplicate trend name upsert with existing id: %s (%s)",
+            trend_name,
+            existing_trend_id,
+        )
+        update_payload = {
+            key: value for key, value in trend_data.items() if key != "id"
+        }
+        return (
+            get_client()
+            .table("trends")
+            .update(update_payload)
+            .eq("id", existing_trend_id)
+            .execute()
+        )
 
 
 def insert_stores(stores: list[dict]):

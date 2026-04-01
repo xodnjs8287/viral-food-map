@@ -332,6 +332,42 @@ def _find_matching_existing_trends(
     return matches
 
 
+def _dedupe_existing_trends(*trend_groups: list[dict]) -> list[dict]:
+    deduped: dict[str, dict] = {}
+
+    for trends in trend_groups:
+        for trend in trends:
+            trend_id = trend.get("id")
+            if trend_id:
+                deduped[trend_id] = trend
+                continue
+
+            trend_name = clean_display_keyword(trend.get("name"))
+            if not trend_name:
+                continue
+            deduped[f"name:{normalize_keyword_text(trend_name)}"] = trend
+
+    return list(deduped.values())
+
+
+def _find_persisted_matching_trends(
+    *,
+    search_terms: list[str],
+    consumed_trend_ids: set[str],
+    alias_lookup: dict[str, str],
+) -> list[dict]:
+    persisted_trends = get_trends_by_names(search_terms)
+    if not persisted_trends:
+        return []
+
+    return _find_matching_existing_trends(
+        persisted_trends,
+        search_terms=search_terms,
+        consumed_trend_ids=consumed_trend_ids,
+        alias_lookup=alias_lookup,
+    )
+
+
 def _merge_duplicate_trend_stores(primary_trend_id: str, duplicate_trends: list[dict]) -> None:
     if not duplicate_trends:
         return
@@ -640,6 +676,14 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             search_terms=search_terms,
             consumed_trend_ids=consumed_existing_ids,
             alias_lookup=alias_lookup,
+        )
+        matching_existing_trends = _dedupe_existing_trends(
+            matching_existing_trends,
+            _find_persisted_matching_trends(
+                search_terms=search_terms,
+                consumed_trend_ids=consumed_existing_ids,
+                alias_lookup=alias_lookup,
+            ),
         )
         primary_existing_trend = _select_primary_existing_trend(matching_existing_trends)
         if primary_existing_trend:
