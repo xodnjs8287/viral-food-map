@@ -70,6 +70,7 @@ export type LocationStatus =
   | "loading"
   | "granted"
   | "denied"
+  | "invalid"
   | "unsupported";
 
 export type YomechuCategorySlug =

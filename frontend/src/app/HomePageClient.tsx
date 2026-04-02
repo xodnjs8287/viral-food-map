@@ -23,6 +23,7 @@ import {
 } from "@/lib/crawler";
 import { openExternalUrl } from "@/lib/external-links";
 import { getAddressLabelFromCoords } from "@/lib/kakao-loader";
+import { DEFAULT_MAP_CENTER, hasUsableCoordinates } from "@/lib/location";
 import { SITE_URL } from "@/lib/site";
 import { supabase } from "@/lib/supabase";
 import type {
@@ -204,6 +205,10 @@ export default function HomePageClient({
 
     getCurrentPosition({ enableHighAccuracy: true, timeout: 8000 })
       .then((nextLocation) => {
+        if (!hasUsableCoordinates(nextLocation)) {
+          throw new Error("INVALID_POSITION");
+        }
+
         setUserLoc(nextLocation);
         setYomechuBaseLocation({
           ...nextLocation,
@@ -213,12 +218,33 @@ export default function HomePageClient({
         setLocationStatus("granted");
         updateBaseLocationLabel("device", nextLocation, "현재 위치");
       })
-      .catch(() => {
+      .catch((error) => {
         setUserLoc(null);
         setYomechuBaseLocation((current) =>
           current && current.source !== "device" ? current : null
         );
-        setLocationStatus("denied");
+
+        if (!(error instanceof Error)) {
+          setLocationStatus("invalid");
+          return;
+        }
+
+        switch (error.message) {
+          case "PERMISSION_DENIED":
+            setLocationStatus("denied");
+            break;
+          case "GEOLOCATION_NOT_SUPPORTED":
+            setLocationStatus("unsupported");
+            break;
+          case "INVALID_POSITION":
+          case "POSITION_UNAVAILABLE":
+          case "TIMEOUT":
+            setLocationStatus("invalid");
+            break;
+          default:
+            setLocationStatus("invalid");
+            break;
+        }
       });
   }, [updateBaseLocationLabel]);
 
@@ -304,7 +330,7 @@ export default function HomePageClient({
   }, [fetchTrends, requestUserLocation]);
 
   useEffect(() => {
-    if (!userLoc) {
+    if (!hasUsableCoordinates(userLoc)) {
       setNearbyStores([]);
       return;
     }
@@ -332,13 +358,32 @@ export default function HomePageClient({
     : null;
 
   const showLocationNotice =
-    locationStatus === "denied" || locationStatus === "unsupported";
-  const locationPickerInitialCenter =
-    yomechuBaseLocation ??
-    userLoc ?? {
-      lat: 37.5665,
-      lng: 126.978,
-    };
+    locationStatus === "denied" ||
+    locationStatus === "invalid" ||
+    locationStatus === "unsupported";
+  const locationPickerInitialCenter = hasUsableCoordinates(yomechuBaseLocation)
+    ? yomechuBaseLocation
+    : hasUsableCoordinates(userLoc)
+      ? userLoc
+      : DEFAULT_MAP_CENTER;
+  const locationNoticeTitle =
+    locationStatus === "invalid"
+      ? "현재 위치가 정확하지 않아 주변 판매처를 표시하지 않았습니다."
+      : locationStatus === "unsupported"
+        ? "이 브라우저에서는 위치 정보를 읽을 수 없습니다."
+        : "위치 권한이 없어 주변 판매처를 아직 보여드리지 못하고 있습니다.";
+  const locationNoticeDescription =
+    locationStatus === "invalid"
+      ? "잘못된 좌표가 감지되어 현재 위치 사용을 중단했습니다. 현재 위치를 다시 확인하거나 기준 위치를 직접 지정해 주세요."
+      : locationStatus === "unsupported"
+        ? "브라우저 위치 기능 대신 기준 위치를 직접 지정하면 요메추는 계속 사용할 수 있습니다."
+        : "브라우저 위치 권한을 허용하면 가까운 판매처를 자동으로 정렬해 보여드립니다.";
+  const locationNoticeHint =
+    locationStatus === "invalid"
+      ? "기준 위치를 직접 선택하면 요메추 추천은 바로 계속 사용할 수 있어요."
+      : locationStatus === "unsupported"
+        ? "위치 지정하기로 원하는 동네를 고른 뒤 추천을 받아보세요."
+        : "위치 권한을 허용하면 주변 판매처를 자동으로 찾아드립니다.";
 
   const spinYomechu = useCallback(async () => {
     Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {});
@@ -545,30 +590,41 @@ export default function HomePageClient({
           <section className="mb-6">
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
               <p className="text-sm font-semibold text-amber-900">
-                위치 권한이 없어 주변 판매처를 아직 보여드리지 못하고 있습니다.
+                {locationNoticeTitle}
               </p>
               <p className="mt-1 text-sm leading-relaxed text-amber-800">
-                브라우저 위치 권한을 허용하면 가까운 판매처를 자동으로 정렬해 보여드립니다.
+                {locationNoticeDescription}
               </p>
               <p className="mt-2 text-xs leading-5 text-amber-700">
-                위치 권한을 허용하면 주변 판매처를 자동으로 찾아드립니다.
+                {locationNoticeHint}
               </p>
               <div className="mt-3 flex gap-2">
-                <button
-                  onClick={async () => {
-                    try {
-                      const perm = await navigator.permissions?.query({ name: "geolocation" as PermissionName });
-                      if (perm?.state === "denied") {
-                        alert("위치 권한이 차단되어 있습니다.\n\n[설정 방법]\n• 브라우저: 주소창 🔒 아이콘 → 위치 → 허용\n• 앱(PWA): 기기 설정 → 앱 → 브라우저 → 위치 권한 허용\n\n변경 후 새로고침해 주세요.");
-                        return;
-                      }
-                    } catch {}
-                    requestUserLocation();
-                  }}
-                  className="inline-flex rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-950"
-                >
-                  위치 권한 허용하기
-                </button>
+                {locationStatus === "unsupported" ? (
+                  <button
+                    onClick={() => setLocationPickerOpen(true)}
+                    className="inline-flex rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-950"
+                  >
+                    기준 위치 선택하기
+                  </button>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const perm = await navigator.permissions?.query({ name: "geolocation" as PermissionName });
+                        if (perm?.state === "denied") {
+                          alert("위치 권한이 차단되어 있습니다.\n\n[설정 방법]\n• 브라우저: 주소창 🔒 아이콘 → 위치 → 허용\n• 앱(PWA): 기기 설정 → 앱 → 브라우저 → 위치 권한 허용\n\n변경 후 새로고침해 주세요.");
+                          return;
+                        }
+                      } catch {}
+                      requestUserLocation();
+                    }}
+                    className="inline-flex rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-950"
+                  >
+                    {locationStatus === "invalid"
+                      ? "현재 위치 다시 확인하기"
+                      : "위치 권한 허용하기"}
+                  </button>
+                )}
                 <Link
                   href="/map"
                   className="inline-flex rounded-lg border border-amber-300 px-3 py-2 text-xs font-semibold text-amber-900 transition-colors hover:bg-amber-100"

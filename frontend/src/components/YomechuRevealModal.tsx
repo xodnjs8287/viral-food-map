@@ -364,6 +364,13 @@ export default function YomechuRevealModal({
                     animate={{ opacity: 1, y: 0 }}
                     className="mt-5 flex flex-col gap-3"
                   >
+                    <button
+                      type="button"
+                      onClick={() => onOpenPlace(primaryWinner)}
+                      className="w-full rounded-2xl bg-gradient-to-r from-primary via-fuchsia-500 to-secondary px-4 py-3 text-sm font-black tracking-[0.02em] text-white shadow-[0_16px_32px_rgba(155,125,212,0.28)]"
+                    >
+                      {winners.length > 1 ? "1순위 지도에서 보기" : "지도에서 보기"}
+                    </button>
                     {result?.spin_id && shareUrl ? (
                       <div className="flex justify-center">
                         <ShareButton
@@ -378,13 +385,6 @@ export default function YomechuRevealModal({
                         />
                       </div>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => onOpenPlace(primaryWinner)}
-                      className="w-full rounded-2xl bg-gradient-to-r from-primary via-fuchsia-500 to-secondary px-4 py-3 text-sm font-black tracking-[0.02em] text-white shadow-[0_16px_32px_rgba(155,125,212,0.28)]"
-                    >
-                      {winners.length > 1 ? "1순위 지도에서 보기" : "지도에서 보기"}
-                    </button>
                     <button
                       type="button"
                       onClick={onReroll}

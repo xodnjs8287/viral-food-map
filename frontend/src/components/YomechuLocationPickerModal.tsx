@@ -7,6 +7,7 @@ import {
   ensureKakaoMapsLoaded,
   getAddressLabelFromCoords,
 } from "@/lib/kakao-loader";
+import { hasUsableCoordinates } from "@/lib/location";
 
 type Coordinates = {
   lat: number;
@@ -55,6 +56,7 @@ export default function YomechuLocationPickerModal({
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchMessage, setSearchMessage] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<SearchPlaceResult[]>([]);
+  const canConfirmSelection = hasUsableCoordinates(selectedCoords) && !loading;
 
   const moveMarker = useCallback((coords: Coordinates) => {
     const map = mapRef.current;
@@ -78,6 +80,7 @@ export default function YomechuLocationPickerModal({
 
       setSelectedCoords(coords);
       setSelectedLabel(label ?? "주소 확인 중");
+      setError(null);
       moveMarker(coords);
 
       if (label) {
@@ -302,6 +305,11 @@ export default function YomechuLocationPickerModal({
   );
 
   const handleConfirm = useCallback(() => {
+    if (!hasUsableCoordinates(selectedCoords)) {
+      setError("선택한 위치 좌표가 정확하지 않습니다. 다시 검색하거나 지도를 눌러 주세요.");
+      return;
+    }
+
     onConfirm({
       lat: selectedCoords.lat,
       lng: selectedCoords.lng,
@@ -358,6 +366,8 @@ export default function YomechuLocationPickerModal({
             <form onSubmit={handleSearch} className="mb-3">
               <div className="flex gap-2">
                 <input
+                  id="yomechu-location-search"
+                  name="yomechu-location-search"
                   type="text"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -414,6 +424,12 @@ export default function YomechuLocationPickerModal({
                 : "지도를 누르거나 검색 결과를 선택해 주세요."}
             </p>
 
+            {!hasUsableCoordinates(selectedCoords) ? (
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                현재 선택된 위치가 정확하지 않습니다. 다시 검색하거나 지도에서 원하는 위치를 찍어 주세요.
+              </div>
+            ) : null}
+
             {loading ? (
               <p className="mt-3 text-sm text-gray-500">지도를 불러오는 중입니다.</p>
             ) : null}
@@ -435,7 +451,7 @@ export default function YomechuLocationPickerModal({
               <button
                 type="button"
                 onClick={handleConfirm}
-                disabled={loading}
+                disabled={!canConfirmSelection}
                 className="flex-1 rounded-2xl bg-gradient-to-r from-primary via-fuchsia-500 to-secondary px-4 py-3 text-sm font-black tracking-[0.02em] text-white shadow-[0_16px_32px_rgba(155,125,212,0.22)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 이 위치 사용

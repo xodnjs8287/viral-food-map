@@ -60,6 +60,10 @@ function getLocationStatusLabel(
     return "현재 위치 확인 중";
   }
 
+  if (status === "invalid") {
+    return "위치 확인 필요";
+  }
+
   return "위치 지정 필요";
 }
 
@@ -81,6 +85,8 @@ function getLocationDescription(
       return "현재 위치를 확인하고 있습니다. 잠시만 기다려 주세요.";
     case "denied":
       return "현재 위치를 가져오지 못했습니다. 위치 지정하기로 기준 위치를 정하면 계속 사용할 수 있습니다.";
+    case "invalid":
+      return "현재 위치 좌표가 정확하지 않아 추천에 사용하지 않았습니다. 현재 위치를 다시 확인하거나 직접 위치를 지정해 주세요.";
     case "unsupported":
       return "이 브라우저에서는 위치 정보를 읽을 수 없습니다. 위치 지정하기로 기준 위치를 정해 주세요.";
     default:
@@ -159,29 +165,25 @@ export default function YomechuLauncher({
     YOMECHU_CATEGORY_OPTIONS,
     selectedCategory
   );
-  const summaryCards = [
+  const summaryPills = [
     {
-      label: "추천 수",
-      value: selectedCountLabel,
-      className:
-        "border-primary/15 bg-[linear-gradient(180deg,_rgba(155,125,212,0.16),_rgba(155,125,212,0.06))] text-primary",
+      label: `${selectedCountLabel} 추천`,
+      className: "bg-primary/10 text-primary ring-1 ring-primary/15",
     },
     {
-      label: "거리",
-      value: selectedRadiusLabel,
-      className:
-        "border-gray-200 bg-[linear-gradient(180deg,_rgba(17,24,39,0.06),_rgba(17,24,39,0.02))] text-gray-900",
+      label: `${selectedRadiusLabel} 반경`,
+      className: "bg-gray-100 text-gray-700 ring-1 ring-gray-200",
     },
     {
-      label: "업종",
-      value: selectedCategoryLabel,
-      className:
-        "border-secondary/25 bg-[linear-gradient(180deg,_rgba(139,172,216,0.22),_rgba(139,172,216,0.08))] text-sky-900",
+      label: selectedCategoryLabel === "전체" ? "전체 업종" : selectedCategoryLabel,
+      className: "bg-secondary/15 text-sky-900 ring-1 ring-secondary/30",
     },
   ] as const;
-  const selectionSummary = `${selectedCountLabel} · ${selectedRadiusLabel} · ${selectedCategoryLabel}`;
+  const selectionSummary = `${selectedCountLabel} 추천 · ${selectedRadiusLabel} · ${selectedCategoryLabel}`;
   const showRetryButton =
-    !hasBaseLocation && locationStatus !== "unsupported" && locationStatus !== "loading";
+    !hasBaseLocation &&
+    locationStatus !== "unsupported" &&
+    locationStatus !== "loading";
 
   return (
     <AnimatePresence initial={false}>
@@ -220,24 +222,19 @@ export default function YomechuLauncher({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  {summaryCards.map((card) => (
-                    <div
-                      key={card.label}
-                      className={`min-h-[76px] rounded-2xl border px-3 py-3 shadow-sm ${card.className}`}
+                <div className="flex flex-wrap gap-2">
+                  {summaryPills.map((pill) => (
+                    <span
+                      key={pill.label}
+                      className={`rounded-full px-3 py-2 text-sm font-semibold ${pill.className}`}
                     >
-                      <p className="text-[11px] font-semibold tracking-[-0.02em] opacity-75">
-                        {card.label}
-                      </p>
-                      <p className="mt-2 break-keep text-[15px] font-black leading-tight tracking-[-0.03em]">
-                        {card.value}
-                      </p>
-                    </div>
+                      {pill.label}
+                    </span>
                   ))}
                 </div>
 
                 <div
-                  className={`mt-4 rounded-2xl border px-4 py-3 ${
+                  className={`mt-3 rounded-2xl border px-4 py-3 ${
                     hasBaseLocation
                       ? "border-gray-200 bg-gray-50"
                       : "border-amber-200 bg-amber-50"
@@ -411,28 +408,24 @@ export default function YomechuLauncher({
                 ) : null}
 
                 <div
-                  className="sticky z-10 mt-5 -mx-4 border-t border-gray-100 bg-white/95 px-4 pb-4 pt-3 backdrop-blur supports-[backdrop-filter]:bg-white/85"
+                  className="sticky z-10 mt-4 -mx-4 border-t border-gray-100 bg-white/95 px-4 pb-4 pt-3 shadow-[0_-8px_24px_rgba(255,255,255,0.82)] backdrop-blur supports-[backdrop-filter]:bg-white/88"
                   style={{ bottom: "var(--launcher-footer-offset)" }}
                 >
                   <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                    Selected
+                    선택 조건
                   </p>
-                  <div className="mt-1 flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="break-keep text-sm font-semibold text-gray-900">
-                        {selectionSummary}
-                      </p>
-                      <p
-                        className={`mt-1 break-keep text-xs leading-5 ${
-                          hasBaseLocation ? "text-gray-500" : "text-amber-700"
-                        }`}
-                      >
-                        {hasBaseLocation
-                          ? locationLine
-                          : "기준 위치를 먼저 정해 주세요. 빠른 지역 선택도 사용할 수 있어요."}
-                      </p>
-                    </div>
-                  </div>
+                  <p className="mt-1 break-keep text-sm font-semibold text-gray-900">
+                    {selectionSummary}
+                  </p>
+                  <p
+                    className={`mt-1 break-keep text-xs leading-5 ${
+                      hasBaseLocation ? "text-gray-500" : "text-amber-700"
+                    }`}
+                  >
+                    {hasBaseLocation
+                      ? locationLine
+                      : "기준 위치를 먼저 정해 주세요. 빠른 지역 선택도 사용할 수 있어요."}
+                  </p>
 
                   <button
                     type="button"
