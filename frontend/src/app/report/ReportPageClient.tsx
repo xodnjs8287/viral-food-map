@@ -110,20 +110,6 @@ export default function ReportPageClient({ initialTrends }: ReportPageClientProp
             <li>✅ 이미 등록된 매장 중복 제보는 불필요해요</li>
             <li>✅ 카카오맵에서 검색되는 매장명으로 입력하면 정확해요</li>
           </ul>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <a
-              href="/info#content-policy"
-              className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-purple-100"
-            >
-              운영 정책 보기
-            </a>
-            <a
-              href="/privacy"
-              className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-gray-600 transition-colors hover:bg-purple-100"
-            >
-              개인정보 안내
-            </a>
-          </div>
         </div>
         <MyReports />
       </main>

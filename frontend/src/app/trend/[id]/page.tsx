@@ -1,21 +1,15 @@
 import type { Metadata } from "next";
 import KakaoSdkScripts from "@/components/KakaoSdkScripts";
-import TrendDetailPageClient from "../TrendDetailPageClient";
+import TrendDetailPageClient from "./TrendDetailPageClient";
 import { buildMetadata, buildTrendDescription } from "@/lib/seo";
-import { getTrendDetailById, getTrendsForSitemap } from "@/lib/trends-server";
+import { getTrendDetailById } from "@/lib/trends-server";
+
+export const revalidate = 3600;
 
 interface TrendPageProps {
   params: Promise<{
     id: string;
   }>;
-}
-
-export const dynamic = "force-static";
-export const dynamicParams = false;
-
-export async function generateStaticParams() {
-  const trends = await getTrendsForSitemap();
-  return trends.map((trend) => ({ id: trend.id }));
 }
 
 export async function generateMetadata({

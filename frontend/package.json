@@ -4,11 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "npm run build:web",
-    "build:web": "next build --webpack",
-    "build:native": "node scripts/build-native.mjs",
-    "sync:ios": "npm run build:native && npx cap sync ios",
-    "sync:android": "npm run build:native && npx cap sync android",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint src worker capacitor.config.ts"
   },

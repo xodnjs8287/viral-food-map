@@ -9,17 +9,12 @@ import {
 } from "@/lib/yomechu-server";
 import YomechuSharePageClient from "./YomechuSharePageClient";
 
+export const revalidate = 3600;
+
 interface YomechuSharePageProps {
   params: Promise<{
     spinId: string;
   }>;
-}
-
-export const dynamic = "force-static";
-export const dynamicParams = false;
-
-export async function generateStaticParams() {
-  return [];
 }
 
 export async function generateMetadata({

@@ -1,5 +1,3 @@
-const path = require("path");
-
 const withPWA = require("@ducanh2912/next-pwa").default({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
@@ -8,19 +6,22 @@ const withPWA = require("@ducanh2912/next-pwa").default({
 });
 
 /** @type {import('next').NextConfig} */
-const isNativeExport = process.env.NEXT_OUTPUT_MODE === "export";
-
 const nextConfig = {
   reactStrictMode: true,
-  output: isNativeExport ? "export" : "standalone",
-  trailingSlash: isNativeExport,
-  outputFileTracingRoot: path.join(__dirname),
+  output: "standalone",
   images: {
-    unoptimized: isNativeExport,
     remotePatterns: [
       { protocol: "https", hostname: "**" },
       { protocol: "http", hostname: "**" },
     ],
+  },
+  async headers() {
+    return [
+      {
+        source: "/manifest.json",
+        headers: [{ key: "Content-Type", value: "application/manifest+json" }],
+      },
+    ];
   },
 };
 

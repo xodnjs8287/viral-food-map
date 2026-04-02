@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { openExternalUrl, openInstagramTag } from "@/lib/external-links";
-import { buildStoreIssueMailto } from "@/lib/support";
 import type { Store } from "@/lib/types";
 
 type FranchiseFilter = "all" | "franchise" | "independent";
@@ -200,15 +199,6 @@ export default function StoreList({
               className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg hover:opacity-90 transition-opacity"
             >
               인스타
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                window.location.href = buildStoreIssueMailto(store);
-              }}
-              className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-1 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              수정요청
             </button>
           </div>
         </div>

@@ -9,7 +9,6 @@ import ScrollToTop from "@/components/ScrollToTop";
 import StoreList from "@/components/StoreList";
 import TrendBadge from "@/components/TrendBadge";
 import ShareButton from "@/components/ShareButton";
-import { supabase } from "@/lib/supabase";
 import type { Trend, Store } from "@/lib/types";
 
 interface TrendDetailPageClientProps {
@@ -81,22 +80,14 @@ export default function TrendDetailPageClient({
   initialTrend,
   initialStores,
 }: TrendDetailPageClientProps) {
-  const [trend, setTrend] = useState<Trend | null>(initialTrend);
-  const [stores, setStores] = useState<Store[]>(initialStores);
-  const [isTrendLoading, setIsTrendLoading] = useState(initialTrend === null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [storeQuery, setStoreQuery] = useState("");
   const [userLoc, setUserLoc] = useState<UserLocation | null>(null);
   const [locationMessage, setLocationMessage] = useState<string | null>(null);
   const [canRetryLocation, setCanRetryLocation] = useState(false);
-  const [hasAttemptedLocation, setHasAttemptedLocation] = useState(false);
 
   const requestLocation = useCallback(
-    () => {
-      setHasAttemptedLocation(true);
-
-      return (
+    () =>
       new Promise<UserLocation | null>((resolve) => {
         if (!navigator.geolocation) {
           setUserLoc(null);
@@ -134,112 +125,40 @@ export default function TrendDetailPageClient({
             maximumAge: 0,
           }
         );
-      })
-      );
-    },
+      }),
     []
   );
 
   useEffect(() => {
-    let cancelled = false;
-
-    const fetchLatest = async () => {
-      setLoadError(null);
-
-      try {
-        const [trendResult, storesResult] = await Promise.all([
-          supabase.from("trends").select("*").eq("id", id).single(),
-          supabase
-            .from("stores")
-            .select("*")
-            .eq("trend_id", id)
-            .order("verified", { ascending: false }),
-        ]);
-
-        if (cancelled) {
-          return;
-        }
-
-        if (trendResult.error) {
-          throw trendResult.error;
-        }
-
-        if (storesResult.error) {
-          throw storesResult.error;
-        }
-
-        if (trendResult.data) {
-          setTrend(trendResult.data as Trend);
-        } else if (initialTrend === null) {
-          setTrend(null);
-        }
-
-        if (storesResult.data) {
-          setStores(storesResult.data as Store[]);
-        }
-      } catch {
-        if (cancelled) {
-          return;
-        }
-
-        if (initialTrend === null) {
-          setTrend(null);
-        }
-
-        setLoadError("트렌드 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
-      } finally {
-        if (!cancelled) {
-          setIsTrendLoading(false);
-        }
-      }
-    };
-
-    void fetchLatest();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [id, initialTrend]);
+    void requestLocation();
+  }, [requestLocation]);
 
   const sortedStores = useMemo(() => {
     const sorted = userLoc
-      ? [...stores].sort(
+      ? [...initialStores].sort(
           (a, b) =>
             getDistance(userLoc.lat, userLoc.lng, a.lat, a.lng) -
             getDistance(userLoc.lat, userLoc.lng, b.lat, b.lng)
         )
-      : stores;
+      : initialStores;
     if (!storeQuery.trim()) return sorted;
     const q = storeQuery.trim().toLowerCase();
     return sorted.filter(
       (s) => s.name.toLowerCase().includes(q) || s.address.toLowerCase().includes(q)
     );
-  }, [stores, userLoc, storeQuery]);
+  }, [initialStores, userLoc, storeQuery]);
   const nearestStore = sortedStores[0];
   const mapCenter = nearestStore
     ? { lat: nearestStore.lat, lng: nearestStore.lng }
     : { lat: 37.5665, lng: 126.978 };
 
-  if (isTrendLoading && !trend) {
-    return (
-      <>
-        <Header showBack />
-        <main className="page-with-bottom-nav max-w-lg mx-auto px-4 py-12 text-center text-gray-400">
-          <p className="text-4xl mb-3">🍽️</p>
-          <p>트렌드 정보를 불러오는 중이에요.</p>
-        </main>
-        <BottomNav />
-      </>
-    );
-  }
-
-  if (!trend) {
+  if (!initialTrend) {
     return (
       <>
         <Header showBack />
         <main className="page-with-bottom-nav max-w-lg mx-auto px-4 py-12 text-center text-gray-400">
           <p className="text-4xl mb-3">😅</p>
-          <p>{loadError ?? "트렌드를 찾을 수 없어요"}</p>
+          <p>트렌드를 찾을 수 없어요</p>
         </main>
         <BottomNav />
       </>
@@ -252,64 +171,27 @@ export default function TrendDetailPageClient({
       <main className="page-with-bottom-nav max-w-lg mx-auto px-4 py-4 space-y-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h2 className="text-xl font-bold text-gray-900">{trend.name}</h2>
-            <TrendBadge status={trend.status} />
+            <h2 className="text-xl font-bold text-gray-900">{initialTrend.name}</h2>
+            <TrendBadge status={initialTrend.status} />
           </div>
-          {loadError ? (
-            <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-              <p className="text-sm font-semibold text-amber-900">{loadError}</p>
-              <p className="mt-1 text-xs text-amber-800">
-                표시 중인 내용은 마지막으로 불러온 기준일 수 있습니다.
-              </p>
-            </div>
-          ) : null}
           <p className="text-sm text-gray-500">
-            {trend.description || "이 트렌드는 최근 감지되어 상세 정보를 준비 중입니다. 판매처를 알고 계시면 제보해주세요!"}
+            {initialTrend.description || "이 트렌드는 최근 감지되어 상세 정보를 준비 중입니다. 판매처를 알고 계시면 제보해주세요!"}
           </p>
-          {trend.search_volume_data &&
-            Object.keys(trend.search_volume_data).length > 0 && (
-              <VolumeChart data={trend.search_volume_data} />
+          {initialTrend.search_volume_data &&
+            Object.keys(initialTrend.search_volume_data).length > 0 && (
+              <VolumeChart data={initialTrend.search_volume_data} />
             )}
           <p className="text-xs text-gray-400 mt-1 mb-3">
-            {trend.detected_at &&
-              `${new Date(trend.detected_at).toLocaleDateString("ko-KR")} 감지`}{" "}
+            {initialTrend.detected_at &&
+              `${new Date(initialTrend.detected_at).toLocaleDateString("ko-KR")} 감지`}{" "}
             · 판매처 {sortedStores.length}곳
           </p>
           <ShareButton
-            title={`${trend.name} - 요즘뭐먹`}
-            description={trend.description ?? undefined}
-            imageUrl={trend.image_url ?? undefined}
+            title={`${initialTrend.name} - 요즘뭐먹`}
+            description={initialTrend.description ?? undefined}
+            imageUrl={initialTrend.image_url ?? undefined}
           />
         </div>
-
-        {!hasAttemptedLocation && !userLoc ? (
-          <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3">
-            <p className="text-sm font-semibold text-sky-900">
-              현재 위치를 쓰면 가까운 판매처 순으로 정렬해드려요.
-            </p>
-            <p className="mt-1 text-sm text-sky-800">
-              위치 권한은 버튼을 눌렀을 때만 요청하며, 허용하지 않아도 판매처 목록은
-              계속 확인할 수 있습니다.
-            </p>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  void requestLocation();
-                }}
-                className="rounded-lg bg-sky-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-950"
-              >
-                현재 위치 사용하기
-              </button>
-              <Link
-                href="/info#permissions"
-                className="rounded-lg border border-sky-300 px-3 py-2 text-xs font-semibold text-sky-900 transition-colors hover:bg-sky-100"
-              >
-                권한 안내
-              </Link>
-            </div>
-          </div>
-        ) : null}
 
         <KakaoMap
           stores={sortedStores}
@@ -342,16 +224,11 @@ export default function TrendDetailPageClient({
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-bold text-gray-900">판매처 목록</h3>
-            <div className="flex items-center gap-3">
-              <Link href="/info#content-policy" className="text-xs text-gray-400 font-medium">
-                수정·삭제 요청
-              </Link>
-              <Link href={`/report?trend=${id}`} className="text-xs text-primary font-medium">
-                + 제보하기
-              </Link>
-            </div>
+            <Link href={`/report?trend=${id}`} className="text-xs text-primary font-medium">
+              + 제보하기
+            </Link>
           </div>
-          {stores.length > 3 && (
+          {initialStores.length > 3 && (
             <div className="mb-3">
               <input
                 type="text"

@@ -48,6 +48,6 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>현재 위치 사용 버튼을 눌렀을 때만 주변 판매처와 추천 결과를 보여드리기 위해 위치 정보를 사용합니다.</string>
+	<string>내 주변 맛집과 트렌드 판매처를 찾기 위해 위치 정보가 필요합니다.</string>
 </dict>
 </plist>

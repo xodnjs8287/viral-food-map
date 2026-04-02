@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { isNative } from "@/lib/capacitor-utils";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
 
@@ -21,11 +20,6 @@ export default function PushSubscribeButton() {
   const [status, setStatus] = useState<"idle" | "subscribed" | "denied" | "unsupported">("idle");
 
   useEffect(() => {
-    if (isNative()) {
-      setStatus("unsupported");
-      return;
-    }
-
     if (!("Notification" in window) || !("serviceWorker" in navigator)) {
       setStatus("unsupported");
       return;
@@ -36,10 +30,6 @@ export default function PushSubscribeButton() {
       setStatus("denied");
     }
   }, []);
-
-  if (isNative()) {
-    return null;
-  }
 
   const handleSubscribe = async () => {
     if (!VAPID_PUBLIC_KEY || !("serviceWorker" in navigator)) return;
