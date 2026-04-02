@@ -119,7 +119,7 @@ def _build_query(keyword: str, category: str | None) -> str:
 def _build_queries(keyword: str, category: str | None) -> list[str]:
     secondary_query = (
         f"{keyword} 카페 메뉴 사진"
-        if category in {"음료", "주류", "디저트", "간식"}
+        if category in {"음료", "주류"}
         else f"{keyword} 맛집 후기 사진"
     )
     return [
