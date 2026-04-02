@@ -1,5 +1,7 @@
 import re
 
+from franchise_checker import is_franchise
+
 SEED_KEYWORDS = {
     "디저트": [
         "버터떡",
@@ -35,7 +37,6 @@ SEED_KEYWORDS = {
         "로제떡볶이",
         "옥수수치즈",
         "엽떡",
-        "서브웨이",
         "장인약과",
         "우삼겹덮밥",
     ],
@@ -482,6 +483,13 @@ def normalize_keyword(keyword: str) -> str:
     return re.sub(r"\s+", "", keyword).strip()
 
 
+def is_brand_keyword(keyword: str) -> bool:
+    normalized = normalize_keyword(keyword)
+    if not normalized:
+        return False
+    return is_franchise(normalized)
+
+
 def is_food_like_token(token: str, tag: str = "NNG") -> bool:
     """음식명일 가능성이 높은 토큰인지 판별
 
@@ -490,6 +498,8 @@ def is_food_like_token(token: str, tag: str = "NNG") -> bool:
     토큰만 허용한다.
     """
     normalized = normalize_keyword(token)
+    if is_brand_keyword(normalized):
+        return False
     if normalized in _SEED_KEYWORD_SET:
         return True
     if normalized in STOPWORDS or normalized in GENERIC_FOOD_KEYWORDS:
@@ -508,6 +518,8 @@ def is_food_like_token(token: str, tag: str = "NNG") -> bool:
 def is_generic_keyword(keyword: str) -> bool:
     normalized = normalize_keyword(keyword)
     if not normalized:
+        return True
+    if is_brand_keyword(normalized):
         return True
     if normalized in STOPWORDS or normalized in GENERIC_FOOD_KEYWORDS:
         return True

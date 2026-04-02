@@ -281,6 +281,34 @@ def _deactivate_stale_trends(confirmed_keywords: list[str]) -> list[str]:
     return deactivated_trends
 
 
+def _deactivate_invalid_active_trends(active_trends: list[dict]) -> list[str]:
+    deactivated_trends: list[str] = []
+
+    for trend in active_trends:
+        trend_id = trend.get("id")
+        keyword = clean_display_keyword(trend.get("name"))
+        if not trend_id or not keyword:
+            continue
+        if is_food_specific_keyword(keyword):
+            continue
+
+        update_trend_status(trend_id, "inactive")
+        deactivated_trends.append(keyword)
+
+    return deactivated_trends
+
+
+def _merge_deactivated_trends(*trend_groups: list[str]) -> list[str]:
+    return dedupe_terms(
+        [
+            keyword
+            for group in trend_groups
+            for keyword in group
+            if clean_display_keyword(keyword)
+        ]
+    )
+
+
 def _select_display_keyword(group_candidates: list[dict]) -> str:
     def sort_key(candidate: dict) -> tuple[float, float, float, float, int]:
         return (
@@ -479,6 +507,9 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
     alias_lookup = build_alias_lookup(alias_rows)
     alias_terms_by_canonical = build_alias_terms_by_canonical(alias_rows)
     active_trends = get_active_trends() or []
+    invalid_active_trends = _deactivate_invalid_active_trends(active_trends)
+    if invalid_active_trends:
+        active_trends = get_active_trends() or []
     _collapse_cached_active_duplicates(active_trends, alias_lookup)
     active_trends = get_active_trends() or []
 
@@ -495,7 +526,10 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
 
     keywords = list(keyword_metadata_by_name)
     if not keywords:
-        summary["deactivated_trends"] = _deactivate_stale_trends([])
+        summary["deactivated_trends"] = _merge_deactivated_trends(
+            invalid_active_trends,
+            _deactivate_stale_trends([]),
+        )
         return summary
 
     trend_insights = await get_search_trend_insights(keywords)
@@ -526,7 +560,10 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
 
     summary["candidates"] = len(candidates)
     if not candidates:
-        summary["deactivated_trends"] = _deactivate_stale_trends([])
+        summary["deactivated_trends"] = _merge_deactivated_trends(
+            invalid_active_trends,
+            _deactivate_stale_trends([]),
+        )
         return summary
 
     candidate_existing_trends = {
@@ -573,7 +610,10 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
         eligible_candidates.append(candidate)
 
     if not eligible_candidates:
-        summary["deactivated_trends"] = _deactivate_stale_trends([])
+        summary["deactivated_trends"] = _merge_deactivated_trends(
+            invalid_active_trends,
+            _deactivate_stale_trends([]),
+        )
         return summary
 
     review_results: dict[str, TrendReviewResult] = {}
@@ -650,7 +690,10 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             group["confidence"] = max(group["confidence"] or 0.0, confidence)
 
     if not confirmed_groups:
-        summary["deactivated_trends"] = _deactivate_stale_trends([])
+        summary["deactivated_trends"] = _merge_deactivated_trends(
+            invalid_active_trends,
+            _deactivate_stale_trends([]),
+        )
         return summary
 
     consumed_existing_ids: set[str] = set()
@@ -788,7 +831,10 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
     deduped_confirmed_keywords = dedupe_terms(confirmed_keywords)
     summary["confirmed"] = len(deduped_confirmed_keywords)
     summary["confirmed_keywords"] = deduped_confirmed_keywords
-    summary["deactivated_trends"] = _deactivate_stale_trends(deduped_confirmed_keywords)
+    summary["deactivated_trends"] = _merge_deactivated_trends(
+        invalid_active_trends,
+        _deactivate_stale_trends(deduped_confirmed_keywords),
+    )
 
     logger.info(
         "=== trend detection finished: %s confirmed, %s stores, %s descriptions ===",
