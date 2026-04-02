@@ -131,7 +131,7 @@ export default function KakaoMap({
 
     map.setCenter(new kakao.maps.LatLng(center.lat, center.lng));
     map.setLevel(level);
-  }, [map, center.lat, center.lng, level, autoFitBounds, stores.length]);
+  }, [map, center.lat, center.lng, level, autoFitBounds]);
 
   useEffect(() => {
     if (!map) return;
