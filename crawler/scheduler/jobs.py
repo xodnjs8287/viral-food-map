@@ -54,6 +54,8 @@ TREND_LABELS = {
 DISCOVERY_LABELS = {
     "queries": "메타 쿼리",
     "collected_posts": "수집 포스트",
+    "youtube_videos": "YouTube videos",
+    "lead_candidates": "Lead candidates",
     "new_keywords": "신규 키워드",
     "keywords": "발굴 키워드",
     "ai_reviewed": "AI 검토 후보",

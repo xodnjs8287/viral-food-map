@@ -18,6 +18,7 @@ from automation_budget import (
     get_automation_ai_budget_snapshot,
     reserve_automation_ai_call,
 )
+from crawlers.youtube_data import collect_youtube_lead_videos
 from config import settings
 from database import get_all_keywords, get_keyword_aliases, insert_keywords, upsert_keyword_aliases
 from detector.alias_manager import (
@@ -33,7 +34,9 @@ from detector.keyword_manager import (
     CATEGORY_SIGNALS,
     FOOD_CONTEXT_WORDS,
     STOPWORDS,
+    canonicalize_discovered_keyword,
     get_flat_keywords,
+    has_food_signal,
     is_food_like_token,
     is_food_specific_keyword,
 )
@@ -69,6 +72,24 @@ CATEGORY_PATTERNS = {
     "간식": re.compile(
         r"(빵|붕어빵|호두과자|탕후루|츄러스|도넛|타코야키|쿠키슈|젤리)"
     ),
+}
+YOUTUBE_HASHTAG_RE = re.compile(r"#([0-9A-Za-z\uAC00-\uD7A3_]+)")
+YOUTUBE_IGNORED_TAG_KEYS = {
+    normalize_keyword_text(tag)
+    for tag in (
+        "shorts",
+        "short",
+        "ytshorts",
+        "쇼츠",
+        "릴스",
+        "reels",
+        "fyp",
+        "viral",
+        "youtube",
+        "먹방",
+        "asmr",
+        "브이로그",
+    )
 }
 
 _kiwi: Kiwi | None = None
@@ -185,6 +206,109 @@ def collect_candidate_snippets(keyword: str, texts: list[str]) -> list[str]:
     return snippets
 
 
+def merge_evidence_snippets(*groups: list[str]) -> list[str]:
+    snippets: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for raw_item in group:
+            item = " ".join(str(raw_item or "").split())
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            snippets.append(item[:220])
+            if len(snippets) >= settings.AI_REVIEW_MAX_EVIDENCE_SNIPPETS:
+                return snippets
+    return snippets
+
+
+def normalize_discovered_term(term: str) -> str:
+    cleaned = clean_display_keyword(term).replace("#", "").replace("_", "")
+    if not cleaned:
+        return ""
+    canonical = canonicalize_discovered_keyword(cleaned)
+    return clean_display_keyword(canonical or cleaned)
+
+
+def extract_youtube_candidate_terms(text: str) -> dict[str, dict]:
+    candidates: dict[str, dict] = {}
+
+    def add_candidate(raw_term: str) -> None:
+        cleaned_raw = clean_display_keyword(raw_term).replace("#", "").replace("_", "")
+        raw_key = normalize_keyword_text(cleaned_raw)
+        if not cleaned_raw or not raw_key or raw_key in YOUTUBE_IGNORED_TAG_KEYS:
+            return
+
+        canonical = canonicalize_discovered_keyword(cleaned_raw)
+        canonical_key = normalize_keyword_text(canonical)
+        if not canonical or not canonical_key or canonical_key in YOUTUBE_IGNORED_TAG_KEYS:
+            return
+
+        entry = candidates.setdefault(
+            canonical_key,
+            {
+                "keyword": clean_display_keyword(canonical),
+                "raw_terms": set(),
+            },
+        )
+        if len(clean_display_keyword(canonical)) > len(str(entry.get("keyword", ""))):
+            entry["keyword"] = clean_display_keyword(canonical)
+        entry["raw_terms"].add(cleaned_raw)
+        entry["raw_terms"].add(clean_display_keyword(canonical))
+
+    for hashtag in YOUTUBE_HASHTAG_RE.findall(text):
+        add_candidate(hashtag)
+
+    for noun in extract_nouns(text):
+        add_candidate(noun)
+
+    return candidates
+
+
+def register_lead_candidate(
+    lead_candidates: dict[str, dict],
+    *,
+    keyword: str,
+    source: str,
+    score: float,
+    evidence: str,
+    raw_terms: list[str] | set[str] | tuple[str, ...] | None = None,
+) -> None:
+    cleaned_keyword = clean_display_keyword(keyword)
+    normalized_keyword = normalize_keyword_text(cleaned_keyword)
+    if not normalized_keyword:
+        return
+
+    entry = lead_candidates.setdefault(
+        normalized_keyword,
+        {
+            "noun": cleaned_keyword,
+            "lead_score": 0.0,
+            "lead_sources": set(),
+            "lead_evidence": [],
+            "raw_terms": set(),
+        },
+    )
+    if len(cleaned_keyword) > len(str(entry.get("noun", ""))):
+        entry["noun"] = cleaned_keyword
+    entry["lead_score"] = round(float(entry["lead_score"]) + float(score), 2)
+    entry["lead_sources"].add(source)
+    entry["raw_terms"].add(cleaned_keyword)
+    for raw_term in raw_terms or []:
+        cleaned_raw = clean_display_keyword(raw_term)
+        if cleaned_raw:
+            entry["raw_terms"].add(cleaned_raw)
+    if evidence:
+        entry["lead_evidence"].append(evidence[:220])
+
+
+def build_youtube_evidence(video) -> str:
+    return (
+        f"[YouTube] {video.title[:120]} "
+        f"views={video.view_count} likes={video.like_count} "
+        f"comments={video.comment_count}"
+    )
+
+
 def _build_ai_detail_line(
     keyword: str,
     *,
@@ -212,6 +336,8 @@ def _build_summary() -> dict:
     return {
         "queries": len(META_QUERIES),
         "collected_posts": 0,
+        "youtube_videos": 0,
+        "lead_candidates": 0,
         "new_keywords": 0,
         "keywords": [],
         "ai_reviewed": 0,
@@ -260,25 +386,56 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
     alias_rows = get_keyword_aliases()
     alias_lookup = build_alias_lookup(alias_rows)
 
-    all_texts: list[str] = []
+    blog_texts: list[str] = []
+    evidence_texts: list[str] = []
     for query in META_QUERIES:
         items = await search_blogs(query)
         for item in items:
             text = strip_html(item.get("title", "")) + " " + strip_html(
                 item.get("description", "")
             )
-            all_texts.append(text)
+            text = " ".join(text.split())
+            if text:
+                blog_texts.append(text)
+                evidence_texts.append(text)
         await asyncio.sleep(0.5)
 
-    summary["collected_posts"] = len(all_texts)
-    if not all_texts:
+    summary["collected_posts"] = len(blog_texts)
+
+    lead_candidates: dict[str, dict] = {}
+
+    youtube_videos = await collect_youtube_lead_videos()
+    summary["youtube_videos"] = len(youtube_videos)
+    for video in youtube_videos:
+        text = " ".join(part for part in (video.title, video.description) if part).strip()
+        if text:
+            evidence_texts.append(text[:220])
+        youtube_candidates = extract_youtube_candidate_terms(text)
+        if not youtube_candidates:
+            continue
+
+        evidence = build_youtube_evidence(video)
+        per_keyword_score = max(video.score / max(len(youtube_candidates), 1), 1.0)
+        for candidate in youtube_candidates.values():
+            register_lead_candidate(
+                lead_candidates,
+                keyword=candidate["keyword"],
+                source="youtube",
+                score=per_keyword_score,
+                evidence=evidence,
+                raw_terms=sorted(candidate.get("raw_terms", [])),
+            )
+
+    summary["lead_candidates"] = len(lead_candidates)
+    if not blog_texts and not lead_candidates:
         return summary
 
     noun_counter = Counter()
     food_co_occurrence = Counter()
-    for text in all_texts:
+    for text in blog_texts:
         nouns = extract_nouns(text)
-        unique_nouns = {clean_display_keyword(noun) for noun in nouns if noun}
+        unique_nouns = {normalize_discovered_term(noun) for noun in nouns if noun}
+        unique_nouns.discard("")
         noun_counter.update(unique_nouns)
         if unique_nouns & FOOD_CONTEXT_WORDS:
             for noun in unique_nouns:
@@ -304,8 +461,11 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
     )
 
     candidates: list[dict] = []
+    seen_candidate_keys: set[str] = set()
     for noun, frequency in noun_counter.most_common():
         normalized_noun = normalize_keyword_text(noun)
+        lead_entry = lead_candidates.get(normalized_noun)
+        lead_score = float(lead_entry.get("lead_score", 0.0)) if lead_entry else 0.0
         if not normalized_noun or normalized_noun in existing_keys:
             if normalized_noun in alias_lookup:
                 _append_canonicalization(
@@ -315,7 +475,7 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
                     alias_lookup[normalized_noun],
                 )
             continue
-        if frequency < settings.DISCOVERY_MIN_FREQUENCY:
+        if frequency < settings.DISCOVERY_MIN_FREQUENCY and lead_score <= 0:
             break
         if not is_food_specific_keyword(noun):
             continue
@@ -332,6 +492,7 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
 
         food_ratio = food_co_occurrence.get(noun, 0) / frequency if frequency > 0 else 0
         score = frequency * (1.5 if food_ratio > 0.3 else 1.0)
+        score += lead_score
         candidates.append(
             {
                 "noun": noun,
@@ -339,6 +500,66 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
                 "food_score": round(score, 1),
                 "food_ratio": round(food_ratio, 2),
                 "category": classify_category(noun, noun_counter),
+                "lead_score": round(lead_score, 2),
+                "lead_sources": sorted(lead_entry.get("lead_sources", [])) if lead_entry else [],
+                "raw_terms": sorted(lead_entry.get("raw_terms", [])) if lead_entry else [],
+                "evidence_snippets": merge_evidence_snippets(
+                    lead_entry.get("lead_evidence", []) if lead_entry else [],
+                    collect_candidate_snippets(noun, evidence_texts),
+                ),
+            }
+        )
+        seen_candidate_keys.add(normalized_noun)
+
+    for normalized_noun, lead_entry in lead_candidates.items():
+        noun = clean_display_keyword(lead_entry.get("noun"))
+        if (
+            not normalized_noun
+            or normalized_noun in seen_candidate_keys
+            or normalized_noun in existing_keys
+        ):
+            continue
+
+        if normalized_noun in alias_lookup:
+            _append_canonicalization(
+                summary,
+                seen_canonicalizations,
+                noun,
+                alias_lookup[normalized_noun],
+            )
+            continue
+
+        resolved_keyword, matched = resolve_keyword_alias(noun, alias_lookup)
+        if matched:
+            _append_canonicalization(
+                summary,
+                seen_canonicalizations,
+                noun,
+                resolved_keyword,
+            )
+            continue
+
+        if not has_food_signal(noun) and not is_food_specific_keyword(noun):
+            continue
+
+        lead_score = float(lead_entry.get("lead_score", 0.0))
+        if lead_score <= 0:
+            continue
+
+        candidates.append(
+            {
+                "noun": noun,
+                "frequency": max(1, int(round(lead_score))),
+                "food_score": round(lead_score, 1),
+                "food_ratio": 1.0 if has_food_signal(noun) else 0.0,
+                "category": classify_category(noun, noun_counter),
+                "lead_score": round(lead_score, 2),
+                "lead_sources": sorted(lead_entry.get("lead_sources", [])),
+                "raw_terms": sorted(lead_entry.get("raw_terms", [])),
+                "evidence_snippets": merge_evidence_snippets(
+                    lead_entry.get("lead_evidence", []),
+                    collect_candidate_snippets(noun, evidence_texts),
+                ),
             }
         )
 
@@ -360,9 +581,9 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
                     frequency=candidate["frequency"],
                     food_ratio=candidate["food_ratio"],
                     category_hint=candidate["category"],
-                    evidence_snippets=collect_candidate_snippets(
-                        candidate["noun"],
-                        all_texts,
+                    evidence_snippets=merge_evidence_snippets(
+                        candidate.get("evidence_snippets", []),
+                        collect_candidate_snippets(candidate["noun"], evidence_texts),
                     ),
                 )
                 for candidate in candidates
@@ -442,6 +663,11 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
             [
                 display_keyword,
                 *[candidate["noun"] for candidate in group_candidates],
+                *[
+                    raw_term
+                    for candidate in group_candidates
+                    for raw_term in candidate.get("raw_terms", [])
+                ],
                 *group["ai_terms"],
             ]
         )

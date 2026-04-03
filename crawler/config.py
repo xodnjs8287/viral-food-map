@@ -57,6 +57,7 @@ class Settings:
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
     NAVER_CLIENT_ID: str = os.getenv("NAVER_CLIENT_ID", "")
     NAVER_CLIENT_SECRET: str = os.getenv("NAVER_CLIENT_SECRET", "")
+    YOUTUBE_API_KEY: str = os.getenv("YOUTUBE_API_KEY", "")
     KAKAO_REST_API_KEY: str = os.getenv("KAKAO_REST_API_KEY", "")
     DISCORD_WEBHOOK_URL: str = os.getenv("DISCORD_WEBHOOK_URL", "")
     APP_ENV: str = _detect_app_env()
@@ -142,6 +143,28 @@ class Settings:
             str(max(int(os.getenv("DISCOVERY_MAX_NEW_KEYWORDS", "10")), 10)),
         )
     )
+    YOUTUBE_DISCOVERY_ENABLED: bool = _env_bool(
+        "YOUTUBE_DISCOVERY_ENABLED",
+        default=bool(os.getenv("YOUTUBE_API_KEY", "").strip()),
+    )
+    YOUTUBE_DISCOVERY_REGION_CODE: str = os.getenv(
+        "YOUTUBE_DISCOVERY_REGION_CODE",
+        "KR",
+    )
+    YOUTUBE_DISCOVERY_LANGUAGE: str = os.getenv(
+        "YOUTUBE_DISCOVERY_LANGUAGE",
+        "ko",
+    )
+    YOUTUBE_DISCOVERY_LOOKBACK_HOURS: int = int(
+        os.getenv("YOUTUBE_DISCOVERY_LOOKBACK_HOURS", "72")
+    )
+    YOUTUBE_DISCOVERY_RESULTS_PER_QUERY: int = int(
+        os.getenv("YOUTUBE_DISCOVERY_RESULTS_PER_QUERY", "8")
+    )
+    YOUTUBE_DISCOVERY_MAX_VIDEOS: int = int(
+        os.getenv("YOUTUBE_DISCOVERY_MAX_VIDEOS", "30")
+    )
+    YOUTUBE_DISCOVERY_QUERIES: str = os.getenv("YOUTUBE_DISCOVERY_QUERIES", "")
 
 
 settings = Settings()

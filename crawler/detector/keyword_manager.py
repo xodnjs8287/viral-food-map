@@ -455,6 +455,150 @@ _FOOD_SIGNAL_TERMS = frozenset(
     for signal in signals
     if len(signal) >= 2
 )
+_DISCOVERY_NORMALIZE_RE = re.compile(r"[^0-9A-Za-z\uAC00-\uD7A3]+")
+_DISCOVERY_PRICE_PREFIX_RE = re.compile(
+    r"^(?:\d+(?:천|만)?원?(?:대)?|\d+개입?|\d+위|\d+종|\d+탄|\d+분컷|\d+초컷)+"
+)
+_DISCOVERY_PREFIX_NOISE_TERMS = tuple(
+    sorted(
+        {
+            "제품제공",
+            "최신",
+            "요즘",
+            "유행",
+            "핫한",
+            "핫",
+            "신상",
+            "추천",
+            "리뷰",
+            "정리",
+            "총정리",
+            "랭킹",
+            "편의점",
+            "카페",
+            "맛집",
+            "먹방",
+            "급상승",
+            "인기",
+            "viral",
+            "sns",
+            "shorts",
+            "short",
+            "ytshorts",
+            "쇼츠",
+            "cu",
+            "gs25",
+            "gs",
+            "세븐일레븐",
+            "이마트24",
+            "emart24",
+            "이하",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+_DISCOVERY_SUFFIX_NOISE_TERMS = tuple(
+    sorted(
+        {
+            "제품제공",
+            "추천",
+            "리뷰",
+            "먹방",
+            "유행",
+            "정리",
+            "총정리",
+            "랭킹",
+            "버전",
+            "ver",
+            "shorts",
+            "short",
+            "ytshorts",
+            "쇼츠",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+_DISCOVERY_DESCRIPTOR_PREFIXES = frozenset(
+    {
+        "\ucb80\ub4dd",
+        "즉석",
+        "캐릭터",
+        "칠리",
+        "콘카르네",
+        "수제",
+        "바삭",
+        "촉촉",
+    }
+)
+_DISCOVERY_CORE_PREFIXES = tuple(
+    sorted(
+        set(FOOD_PREFIXES)
+        | set(FOOD_CONTEXT_WORDS)
+        | set(_SEED_KEYWORD_SET)
+        | {
+            "\ucb80\ub4dd",
+            "즉석",
+            "수제",
+            "캐릭터",
+            "칠리",
+            "콘카르네",
+            "초콜릿",
+            "브라우니",
+            "쿠키",
+            "핫도그",
+            "떡볶이",
+            "국밥",
+            "냉면",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+_DISCOVERY_FOOD_ANCHORS = tuple(
+    sorted(
+        {
+            "핫도그",
+            "브라우니",
+            "쿠키",
+            "국밥",
+            "냉면",
+            "떡볶이",
+            "초콜릿",
+            "콘카르네",
+            "파스타",
+            "토스트",
+            "타르트",
+            "스무디",
+            "에이드",
+            "라떼",
+            "주스",
+            "국수",
+            "만두",
+            "타코",
+            "겹살",
+            "버거",
+            "파이",
+            "초밥",
+            "치킨",
+            "도넛",
+            "피자",
+            "크림",
+            "젤리",
+            "푸딩",
+            "까스",
+            "순대",
+            "소스",
+            "빵",
+            "탕",
+            "밥",
+            "떡",
+        },
+        key=len,
+        reverse=True,
+    )
+)
 
 
 def get_all_seed_keywords() -> list[dict]:
@@ -481,6 +625,121 @@ def get_flat_keywords() -> list[str]:
 
 def normalize_keyword(keyword: str) -> str:
     return re.sub(r"\s+", "", keyword).strip()
+
+
+def _normalize_discovery_text(keyword: str) -> str:
+    cleaned = normalize_keyword(keyword).lower()
+    return _DISCOVERY_NORMALIZE_RE.sub("", cleaned)
+
+
+def _strip_discovery_noise(keyword: str) -> str:
+    cleaned = _normalize_discovery_text(keyword)
+    previous = None
+    while cleaned and cleaned != previous:
+        previous = cleaned
+        cleaned = _DISCOVERY_PRICE_PREFIX_RE.sub("", cleaned)
+
+        for prefix in _DISCOVERY_PREFIX_NOISE_TERMS:
+            if cleaned.startswith(prefix) and len(cleaned) > len(prefix) + 1:
+                cleaned = cleaned[len(prefix) :]
+                break
+
+        for suffix in _DISCOVERY_SUFFIX_NOISE_TERMS:
+            if cleaned.endswith(suffix) and len(cleaned) > len(suffix) + 1:
+                cleaned = cleaned[: -len(suffix)]
+                break
+
+    half = len(cleaned) // 2
+    if half > 1 and len(cleaned) % 2 == 0 and cleaned[:half] == cleaned[half:]:
+        cleaned = cleaned[:half]
+
+    return cleaned
+
+
+def _iter_discovery_core_positions(keyword: str) -> list[int]:
+    positions: set[int] = {0}
+    for term in _DISCOVERY_CORE_PREFIXES:
+        start = 0
+        while True:
+            index = keyword.find(term, start)
+            if index < 0:
+                break
+            positions.add(index)
+            start = index + 1
+    return sorted(positions)
+
+
+def _discovery_leading_noise_penalty(keyword: str) -> float:
+    positions = [position for position in _iter_discovery_core_positions(keyword) if position > 0]
+    if not positions:
+        return 0.0
+
+    first_position = min(positions)
+    prefix = keyword[:first_position]
+    if len(prefix) < 2 or has_food_signal(prefix) or prefix in _SEED_KEYWORD_SET:
+        return 0.0
+    return float(min(first_position, 6) * 2)
+
+
+def _score_discovery_candidate(keyword: str) -> float:
+    cleaned = _strip_discovery_noise(keyword)
+    if len(cleaned) < 2:
+        return -100.0
+
+    score = min(len(cleaned), 12) * 0.25
+    if cleaned in _SEED_KEYWORD_SET:
+        score += 10.0
+    if _has_discovery_food_anchor(cleaned):
+        score += 8.0
+    if cleaned.endswith(FOOD_SUFFIXES):
+        score += 4.0
+    score += sum(3.0 for prefix in FOOD_PREFIXES if prefix in cleaned)
+    score += sum(2.5 for context in FOOD_CONTEXT_WORDS if context in cleaned)
+    if any(cleaned.startswith(prefix) for prefix in _DISCOVERY_DESCRIPTOR_PREFIXES):
+        score += 3.0
+    if is_food_specific_keyword(cleaned):
+        score += 5.0
+    if is_generic_keyword(cleaned):
+        score -= 6.0
+    score -= _discovery_leading_noise_penalty(cleaned)
+    return score
+
+
+def _has_discovery_food_anchor(keyword: str) -> bool:
+    cleaned = _strip_discovery_noise(keyword)
+    if not cleaned:
+        return False
+    if cleaned in _SEED_KEYWORD_SET:
+        return True
+    return any(anchor in cleaned for anchor in _DISCOVERY_FOOD_ANCHORS)
+
+
+def canonicalize_discovered_keyword(keyword: str) -> str | None:
+    cleaned = _strip_discovery_noise(keyword)
+    if len(cleaned) < 2:
+        return None
+
+    candidates: set[str] = {cleaned}
+    for position in _iter_discovery_core_positions(cleaned):
+        if position <= 0:
+            continue
+        trimmed = _strip_discovery_noise(cleaned[position:])
+        if len(trimmed) >= 2:
+            candidates.add(trimmed)
+
+    scored_candidates = [
+        (_score_discovery_candidate(candidate), len(candidate), candidate)
+        for candidate in candidates
+    ]
+    if not scored_candidates:
+        return None
+
+    score, _, best_candidate = max(scored_candidates, key=lambda item: (item[0], item[1]))
+    if not _has_discovery_food_anchor(best_candidate):
+        return None
+    if score <= 0 and best_candidate not in _SEED_KEYWORD_SET:
+        return None
+    return best_candidate
 
 
 def is_brand_keyword(keyword: str) -> bool:
