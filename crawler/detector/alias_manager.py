@@ -81,9 +81,9 @@ def build_alias_rows(
     if not cleaned_canonical or not canonical_key:
         return rows
 
-    for alias in dedupe_terms([cleaned_canonical, *aliases]):
+    for alias in dedupe_terms(aliases):
         alias_key = normalize_keyword_text(alias)
-        if not alias_key:
+        if not alias_key or alias_key == canonical_key:
             continue
         rows.append(
             {
