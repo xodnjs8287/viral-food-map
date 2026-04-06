@@ -19,7 +19,6 @@ SEED_KEYWORDS = {
         "인절미",
         "카눌레",
         "뚱카롱",
-        "마라탕후루",
     ],
     "음료": [
         "하이볼",
@@ -443,6 +442,7 @@ GENERIC_FOOD_KEYWORDS = frozenset({
     "국밥",
     "분식",
     "제로슈거",
+    "마라탕후루",
 })
 
 _SEED_KEYWORD_SET = frozenset(
