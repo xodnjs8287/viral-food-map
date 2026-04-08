@@ -176,7 +176,9 @@ class Settings:
         "https://api.openai.com/v1/chat/completions",
     )
     AI_REVIEW_API_KEY: str = os.getenv("AI_REVIEW_API_KEY", "")
-    AI_REVIEW_MODEL: str = os.getenv("AI_REVIEW_MODEL", "")
+    AI_REVIEW_MODEL: str = os.getenv(
+        "AI_REVIEW_MODEL", "gemini-3.1-flash-lite-preview"
+    )
     AI_REVIEW_ENABLED: bool = _env_bool(
         "AI_REVIEW_ENABLED",
         default=bool(
@@ -199,6 +201,14 @@ class Settings:
             "INSTAGRAM_IMAGE_REVIEW_MIN_CONFIDENCE",
             os.getenv("AI_REVIEW_MIN_CONFIDENCE", "0.7"),
         )
+    )
+    AI_REVIEW_GROUNDING_ENABLED: bool = _env_bool(
+        "AI_REVIEW_GROUNDING_ENABLED",
+        default=True,
+    )
+    AI_REVIEW_GROUNDING_FALLBACK_MODEL: str = os.getenv(
+        "AI_REVIEW_GROUNDING_FALLBACK_MODEL",
+        "gemini-3-flash-preview",
     )
     AI_REVIEW_MAX_EVIDENCE_SNIPPETS: int = int(
         os.getenv("AI_REVIEW_MAX_EVIDENCE_SNIPPETS", "4")

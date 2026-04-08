@@ -8,3 +8,4 @@ pytrends==4.9.2
 python-dotenv==1.2.2
 kiwipiepy==0.23.0
 pywebpush==2.3.0
+google-genai==1.14.0

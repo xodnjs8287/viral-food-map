@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 import httpx
+from google import genai
+from google.genai import types as genai_types
 
 from config import settings
 from detector.alias_manager import clean_display_keyword
@@ -14,6 +16,18 @@ logger = logging.getLogger(__name__)
 
 VALID_CATEGORIES = ("디저트", "음료", "식사", "간식", "기타")
 VALID_VERDICTS = ("accept", "reject", "review")
+
+# Grounding / tool-capability error keywords used to trigger fallback.
+_GROUNDING_ERROR_KEYWORDS = (
+    "does not support",
+    "not supported",
+    "unsupported",
+    "tool",
+    "grounding",
+    "capability",
+    "FAILED_PRECONDITION",
+    "INVALID_ARGUMENT",
+)
 
 
 class AIReviewError(RuntimeError):
@@ -69,11 +83,8 @@ def is_ai_review_enabled() -> bool:
     )
 
 
-def _build_headers() -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {settings.AI_REVIEW_API_KEY}",
-        "Content-Type": "application/json",
-    }
+def _get_client() -> genai.Client:
+    return genai.Client(api_key=settings.AI_REVIEW_API_KEY)
 
 
 def _normalize_verdict(value: Any) -> str:
@@ -133,26 +144,6 @@ def _extract_json_blob(content: str) -> dict[str, Any] | list[dict[str, Any]]:
     return data
 
 
-def _extract_message_content(data: dict[str, Any]) -> str:
-    choices = data.get("choices")
-    if not isinstance(choices, list) or not choices:
-        raise AIReviewError("AI response missing choices")
-
-    message = choices[0].get("message", {})
-    content = message.get("content", "")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict):
-                text = block.get("text")
-                if text:
-                    parts.append(str(text))
-        return "\n".join(parts)
-    return str(content)
-
-
 def _normalize_short_text(value: Any, max_length: int = 160) -> str | None:
     text = " ".join(str(value or "").split())
     if not text:
@@ -209,53 +200,122 @@ def _coerce_result(
     )
 
 
-async def _request_json_review(
+def _is_grounding_error(exc: Exception) -> bool:
+    """Return True if the exception looks like a grounding/tool capability error."""
+    msg = str(exc).lower()
+    return any(kw.lower() in msg for kw in _GROUNDING_ERROR_KEYWORDS)
+
+
+def _extract_response_text(response: genai_types.GenerateContentResponse) -> str:
+    """Extract text content from a Gemini generate_content response."""
+    if response.text:
+        return response.text
+    parts = []
+    for candidate in response.candidates or []:
+        for part in candidate.content.parts or []:
+            if part.text:
+                parts.append(part.text)
+    return "\n".join(parts)
+
+
+async def _gemini_generate(
     *,
-    messages: list[dict[str, Any]],
-    max_tokens: int = 1200,
-) -> dict[str, Any] | list[dict[str, Any]]:
+    model: str,
+    system_instruction: str,
+    user_content: str | list[genai_types.Part],
+    max_output_tokens: int = 1200,
+    tools: list[genai_types.Tool] | None = None,
+) -> str:
+    """Call Gemini generate_content and return the text response."""
     if not is_ai_review_enabled():
         raise AIReviewError("AI review is disabled or missing credentials")
 
-    body = {
-        "model": settings.AI_REVIEW_MODEL,
-        "temperature": 0.1,
-        "max_tokens": max_tokens,
-        "messages": messages,
-    }
+    client = _get_client()
+
+    config = genai_types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        temperature=0.1,
+        max_output_tokens=max_output_tokens,
+        http_options=genai_types.HttpOptions(
+            timeout=settings.AI_REVIEW_TIMEOUT_SECONDS * 1000,
+        ),
+    )
+    if tools:
+        config.tools = tools
 
     try:
-        async with httpx.AsyncClient(timeout=settings.AI_REVIEW_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                settings.AI_REVIEW_API_URL,
-                headers=_build_headers(),
-                json=body,
-            )
-            response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        raise AIReviewError(
-            f"AI review request failed with status {exc.response.status_code}"
-        ) from exc
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=user_content,
+            config=config,
+        )
     except Exception as exc:
-        raise AIReviewError(f"AI review request failed: {exc}") from exc
+        raise AIReviewError(f"Gemini API request failed: {exc}") from exc
 
-    return _extract_json_blob(_extract_message_content(response.json()))
+    text = _extract_response_text(response)
+    if not text:
+        raise AIReviewError("empty Gemini response")
+    return text
 
 
-async def _request_batch_review(
+async def _gemini_generate_with_grounding(
+    *,
+    system_instruction: str,
+    user_content: str,
+    max_output_tokens: int = 1200,
+) -> str:
+    """Call Gemini with Google Search grounding, with automatic fallback."""
+    model = settings.AI_REVIEW_MODEL
+    use_grounding = settings.AI_REVIEW_GROUNDING_ENABLED
+
+    tools: list[genai_types.Tool] | None = None
+    if use_grounding:
+        tools = [genai_types.Tool(google_search=genai_types.GoogleSearch())]
+
+    try:
+        text = await _gemini_generate(
+            model=model,
+            system_instruction=system_instruction,
+            user_content=user_content,
+            max_output_tokens=max_output_tokens,
+            tools=tools,
+        )
+        logger.info("Gemini text review completed with model=%s, grounding=%s", model, use_grounding)
+        return text
+    except AIReviewError as exc:
+        original_exc = exc.__cause__ or exc
+        if not (use_grounding and _is_grounding_error(original_exc)):
+            raise
+
+        fallback_model = settings.AI_REVIEW_GROUNDING_FALLBACK_MODEL
+        logger.warning(
+            "Grounding not supported on %s, falling back to %s: %s",
+            model,
+            fallback_model,
+            original_exc,
+        )
+        text = await _gemini_generate(
+            model=fallback_model,
+            system_instruction=system_instruction,
+            user_content=user_content,
+            max_output_tokens=max_output_tokens,
+            tools=tools,
+        )
+        logger.info("Gemini text review completed with fallback model=%s", fallback_model)
+        return text
+
+
+async def _request_text_review(
     *,
     system_prompt: str,
     payload: dict[str, Any],
 ) -> dict[str, Any] | list[dict[str, Any]]:
-    return await _request_json_review(
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": json.dumps(payload, ensure_ascii=False),
-            },
-        ],
+    """Text review via Gemini with grounding."""
+    text = await _gemini_generate_with_grounding(
+        system_instruction=system_prompt,
+        user_content=json.dumps(payload, ensure_ascii=False),
     )
+    return _extract_json_blob(text)
 
 
 def _extract_results(raw: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -332,7 +392,7 @@ async def review_trend_candidates(
         "Respond with JSON only using the shape "
         '{"results":[{"keyword":"...","verdict":"accept|reject|review","confidence":0.0,"category":"...","reason":"...","canonical_keyword":"...","description":"..."}]}.'
     )
-    raw = await _request_batch_review(
+    raw = await _request_text_review(
         system_prompt=system_prompt,
         payload={
             "type": "trend_candidates",
@@ -363,7 +423,7 @@ async def review_discovered_keywords(
         "Respond with JSON only using the shape "
         '{"results":[{"keyword":"...","verdict":"accept|reject|review","confidence":0.0,"category":"...","reason":"...","canonical_keyword":"..."}]}.'
     )
-    raw = await _request_batch_review(
+    raw = await _request_text_review(
         system_prompt=system_prompt,
         payload={
             "type": "discovered_keywords",
@@ -432,30 +492,39 @@ async def review_instagram_post_image(
         "category": category or "",
         "caption": caption or "",
     }
-    raw = await _request_json_review(
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            "Review this Instagram feed image before auto-publishing.\n"
-                            f"{json.dumps(review_context, ensure_ascii=False)}"
-                        ),
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": image_url,
-                        },
-                    },
-                ],
-            },
-        ],
-        max_tokens=400,
+
+    # Download image bytes for Gemini multimodal input
+    try:
+        async with httpx.AsyncClient(timeout=settings.AI_REVIEW_TIMEOUT_SECONDS) as http:
+            img_response = await http.get(image_url)
+            img_response.raise_for_status()
+            image_bytes = img_response.content
+            content_type = img_response.headers.get("content-type", "image/jpeg")
+    except Exception as exc:
+        raise AIReviewError(f"Failed to download image for review: {exc}") from exc
+
+    # Determine MIME type
+    mime_type = content_type.split(";")[0].strip()
+    if mime_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+        mime_type = "image/jpeg"
+
+    user_parts = [
+        genai_types.Part.from_text(
+            text="Review this Instagram feed image before auto-publishing.\n"
+            f"{json.dumps(review_context, ensure_ascii=False)}"
+        ),
+        genai_types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+    ]
+
+    # Image review: no grounding, just multimodal
+    text = await _gemini_generate(
+        model=settings.AI_REVIEW_MODEL,
+        system_instruction=system_prompt,
+        user_content=user_parts,
+        max_output_tokens=400,
     )
+
+    raw = _extract_json_blob(text)
     result = _coerce_instagram_image_result(raw)
     logger.info(
         "AI Instagram image reviewed %s as %s (confidence=%.2f)",
