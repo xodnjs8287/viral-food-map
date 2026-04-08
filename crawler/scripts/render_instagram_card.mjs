@@ -144,10 +144,32 @@ function buildShadowLayer(frame, colors) {
   `);
 }
 
+function validateImageUrl(rawUrl) {
+  const parsed = new URL(rawUrl);
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`Blocked protocol: ${parsed.protocol}`);
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  const blockedHosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"];
+  if (
+    blockedHosts.includes(hostname) ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    hostname.startsWith("10.") ||
+    hostname.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+    hostname.startsWith("169.254.")
+  ) {
+    throw new Error(`Blocked host: ${hostname}`);
+  }
+}
+
 async function fetchPhotoBuffer(imageUrl, frame) {
   if (!imageUrl) {
     return null;
   }
+
+  validateImageUrl(imageUrl);
 
   const response = await fetch(imageUrl, { redirect: "follow" });
   if (!response.ok) {

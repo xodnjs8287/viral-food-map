@@ -280,19 +280,31 @@ async def find_food_image(
             if not items:
                 return existing_image_url
 
-            scores = await asyncio.gather(
-                *[
-                    _score_image(
-                        client,
-                        item,
-                        keyword=keyword,
-                        category=category,
-                    )
-                    for item in items
-                ]
-            )
+            try:
+                scores = await asyncio.wait_for(
+                    asyncio.gather(
+                        *[
+                            _score_image(
+                                client,
+                                item,
+                                keyword=keyword,
+                                category=category,
+                            )
+                            for item in items
+                        ],
+                        return_exceptions=True,
+                    ),
+                    timeout=15,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Image scoring timed out for %s", keyword)
+                return existing_image_url
+
             scored = [
-                (score, item.get("link", ""))
+                (
+                    score if isinstance(score, (int, float)) else -10.0,
+                    item.get("link", ""),
+                )
                 for score, item in zip(scores, items)
                 if item.get("link")
             ]

@@ -4,11 +4,11 @@ import asyncio
 import json
 import logging
 import re
-import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -226,7 +226,7 @@ def _read_renderer_result(stdout: str) -> dict[str, Any]:
     return json.loads(lines[-1])
 
 
-def _render_instagram_card(
+async def _render_instagram_card(
     trend: dict[str, Any],
 ) -> tuple[bytes, dict[str, Any]]:
     with tempfile.TemporaryDirectory(prefix="instagram-card-") as temp_dir:
@@ -250,28 +250,31 @@ def _render_instagram_card(
             encoding="utf-8",
         )
 
-        result = subprocess.run(
-            [
-                "node",
-                "scripts/render_instagram_card.mjs",
-                "--payload",
-                str(payload_path),
-            ],
-            cwd=Path(__file__).resolve().parent,
-            capture_output=True,
-            text=True,
-            check=True,
+        process = await asyncio.create_subprocess_exec(
+            "node",
+            "scripts/render_instagram_card.mjs",
+            "--payload",
+            str(payload_path),
+            cwd=str(Path(__file__).resolve().parent),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            raise RuntimeError(f"Renderer failed: {stderr.decode()}")
 
         if not output_path.exists():
             raise RuntimeError("Renderer completed without producing an output file")
 
-        return output_path.read_bytes(), _read_renderer_result(result.stdout)
+        return output_path.read_bytes(), _read_renderer_result(stdout.decode())
 
 
-def _upload_instagram_media(image_bytes: bytes, run_date: str, trend_name: str) -> str:
+def _upload_instagram_media(
+    image_bytes: bytes, run_date: str, trend_name: str
+) -> tuple[str, str]:
     object_path = (
-        f"feed/{run_date}/{_now_kst().strftime('%H%M%S')}-{_slugify(trend_name)}.jpg"
+        f"feed/{run_date}/{_now_kst().strftime('%H%M%S')}-{uuid4().hex[:4]}-{_slugify(trend_name)}.jpg"
     )
     bucket = get_client().storage.from_(settings.INSTAGRAM_MEDIA_BUCKET)
     bucket.upload(
@@ -283,7 +286,15 @@ def _upload_instagram_media(image_bytes: bytes, run_date: str, trend_name: str) 
             "upsert": "true",
         },
     )
-    return bucket.get_public_url(object_path)
+    return bucket.get_public_url(object_path), object_path
+
+
+def _delete_instagram_media(object_path: str) -> None:
+    try:
+        bucket = get_client().storage.from_(settings.INSTAGRAM_MEDIA_BUCKET)
+        bucket.remove([object_path])
+    except Exception as exc:
+        logger.warning("Failed to delete rejected image %s: %s", object_path, exc)
 
 
 async def _create_media_container(image_url: str, caption: str) -> str:
@@ -459,9 +470,10 @@ async def publish_daily_instagram_feed(
                 },
             )
 
+            object_path: str | None = None
             try:
-                image_bytes, render_metadata = _render_instagram_card(candidate)
-                final_image_url = _upload_instagram_media(
+                image_bytes, render_metadata = await _render_instagram_card(candidate)
+                final_image_url, object_path = _upload_instagram_media(
                     image_bytes,
                     run_date,
                     candidate["name"],
@@ -480,6 +492,7 @@ async def publish_daily_instagram_feed(
                             candidate.get("name"),
                             review_message,
                         )
+                        _delete_instagram_media(object_path)
                         update_instagram_feed_run(
                             run_row["id"],
                             {
@@ -523,6 +536,28 @@ async def publish_daily_instagram_feed(
                     "used_fallback_image": bool(render_metadata.get("usedFallback")),
                     "run": run_row,
                 }
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "Instagram publishing candidate failed for %s: %s",
+                    candidate.get("name"),
+                    exc,
+                )
+                errors.append(f"{candidate.get('name')}: {exc}")
+                if object_path:
+                    _delete_instagram_media(object_path)
+                status_code = exc.response.status_code
+                if status_code == 401:
+                    logger.error("Instagram token invalid, aborting candidate loop")
+                    break
+                if status_code == 400:
+                    try:
+                        error_type = exc.response.json().get("error", {}).get("type", "")
+                    except Exception:
+                        error_type = ""
+                    if error_type == "OAuthException":
+                        logger.error("Instagram token expired (OAuthException), aborting candidate loop")
+                        break
+                continue
             except Exception as exc:
                 logger.warning(
                     "Instagram publishing candidate failed for %s: %s",
@@ -530,6 +565,8 @@ async def publish_daily_instagram_feed(
                     exc,
                 )
                 errors.append(f"{candidate.get('name')}: {exc}")
+                if object_path:
+                    _delete_instagram_media(object_path)
                 continue
 
         run_row = update_instagram_feed_run(
