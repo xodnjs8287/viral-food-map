@@ -414,7 +414,9 @@ async def publish_daily_instagram_feed(
     existing_run = get_instagram_feed_run_by_date(run_date)
     if existing_run:
         existing_status = existing_run.get("status")
-        if existing_status in {"published", "skipped"}:
+        if existing_status == "published":
+            return _build_noop_summary(run_date, "already_completed", existing_run)
+        if existing_status == "skipped" and not force_retry:
             return _build_noop_summary(run_date, "already_completed", existing_run)
         if existing_status == "failed" and not force_retry:
             return _build_noop_summary(
