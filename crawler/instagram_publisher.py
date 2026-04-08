@@ -31,7 +31,8 @@ from database import (
 logger = logging.getLogger(__name__)
 
 KST = ZoneInfo(settings.SCHEDULER_TIMEZONE)
-GRAPH_API_BASE_URL = "https://graph.facebook.com"
+DEFAULT_GRAPH_API_BASE_URL = "https://graph.instagram.com"
+FALLBACK_GRAPH_API_BASE_URL = "https://graph.facebook.com"
 MAX_ERROR_MESSAGES = 5
 
 
@@ -76,6 +77,18 @@ def _truncate_error_text(value: str, max_length: int = 400) -> str:
     if len(compact) <= max_length:
         return compact
     return f"{compact[: max_length - 1]}…"
+
+
+def _candidate_graph_api_base_urls() -> list[str]:
+    urls = [
+        DEFAULT_GRAPH_API_BASE_URL,
+        FALLBACK_GRAPH_API_BASE_URL,
+    ]
+    unique_urls: list[str] = []
+    for url in urls:
+        if url not in unique_urls:
+            unique_urls.append(url)
+    return unique_urls
 
 
 def _build_caption(trend: dict[str, Any]) -> str:
@@ -331,6 +344,10 @@ def _build_graph_error_message(exc: httpx.HTTPStatusError) -> str:
     response = exc.response
     payload = _extract_graph_error_payload(response)
     parts = [f"status={response.status_code}"]
+    request_url = getattr(exc.request, "url", None)
+
+    if request_url and getattr(request_url, "host", None):
+        parts.insert(0, f"host={request_url.host}")
 
     error_type = payload.get("type")
     if error_type:
@@ -370,25 +387,45 @@ def _is_graph_auth_error(exc: httpx.HTTPStatusError) -> bool:
     return "access token" in message
 
 
-async def _create_media_container(image_url: str, caption: str) -> str:
+async def _create_media_container(image_url: str, caption: str) -> tuple[str, str]:
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            f"{GRAPH_API_BASE_URL}/{settings.INSTAGRAM_GRAPH_API_VERSION}/{settings.INSTAGRAM_IG_USER_ID}/media",
-            data={
-                "image_url": image_url,
-                "caption": caption,
-                "access_token": settings.INSTAGRAM_ACCESS_TOKEN,
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
-        creation_id = payload.get("id")
-        if not creation_id:
-            raise RuntimeError("Instagram media container response did not include id")
-        return creation_id
+        last_auth_error: httpx.HTTPStatusError | None = None
+        for base_url in _candidate_graph_api_base_urls():
+            try:
+                response = await client.post(
+                    f"{base_url}/{settings.INSTAGRAM_GRAPH_API_VERSION}/{settings.INSTAGRAM_IG_USER_ID}/media",
+                    data={
+                        "image_url": image_url,
+                        "caption": caption,
+                        "access_token": settings.INSTAGRAM_ACCESS_TOKEN,
+                    },
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                if _is_graph_auth_error(exc):
+                    last_auth_error = exc
+                    logger.warning(
+                        "Instagram Graph host %s rejected the access token while creating a media container",
+                        base_url,
+                    )
+                    continue
+                raise
+
+            payload = response.json()
+            creation_id = payload.get("id")
+            if not creation_id:
+                raise RuntimeError(
+                    "Instagram media container response did not include id"
+                )
+            return creation_id, base_url
+
+        if last_auth_error:
+            raise last_auth_error
+
+    raise RuntimeError("Failed to create Instagram media container")
 
 
-async def _wait_for_container_ready(creation_id: str) -> None:
+async def _wait_for_container_ready(creation_id: str, graph_api_base_url: str) -> None:
     deadline = (
         datetime.now(timezone.utc).timestamp()
         + settings.INSTAGRAM_CONTAINER_STATUS_TIMEOUT_SECONDS
@@ -397,7 +434,7 @@ async def _wait_for_container_ready(creation_id: str) -> None:
     async with httpx.AsyncClient(timeout=15) as client:
         while datetime.now(timezone.utc).timestamp() < deadline:
             response = await client.get(
-                f"{GRAPH_API_BASE_URL}/{settings.INSTAGRAM_GRAPH_API_VERSION}/{creation_id}",
+                f"{graph_api_base_url}/{settings.INSTAGRAM_GRAPH_API_VERSION}/{creation_id}",
                 params={
                     "fields": "status_code",
                     "access_token": settings.INSTAGRAM_ACCESS_TOKEN,
@@ -416,10 +453,10 @@ async def _wait_for_container_ready(creation_id: str) -> None:
     raise TimeoutError("Timed out while waiting for Instagram media container")
 
 
-async def _publish_media_container(creation_id: str) -> str:
+async def _publish_media_container(creation_id: str, graph_api_base_url: str) -> str:
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            f"{GRAPH_API_BASE_URL}/{settings.INSTAGRAM_GRAPH_API_VERSION}/{settings.INSTAGRAM_IG_USER_ID}/media_publish",
+            f"{graph_api_base_url}/{settings.INSTAGRAM_GRAPH_API_VERSION}/{settings.INSTAGRAM_IG_USER_ID}/media_publish",
             data={
                 "creation_id": creation_id,
                 "access_token": settings.INSTAGRAM_ACCESS_TOKEN,
@@ -529,6 +566,7 @@ async def publish_daily_instagram_feed(
         for candidate in candidates:
             caption = _build_caption(candidate)
             image_review: InstagramImageReviewResult | None = None
+            graph_api_base_url: str | None = None
             update_instagram_feed_run(
                 run_row["id"],
                 {
@@ -577,9 +615,15 @@ async def publish_daily_instagram_feed(
                         )
                         errors.append(f"{candidate.get('name')}: {review_message}")
                         continue
-                creation_id = await _create_media_container(final_image_url, caption)
-                await _wait_for_container_ready(creation_id)
-                media_id = await _publish_media_container(creation_id)
+                creation_id, graph_api_base_url = await _create_media_container(
+                    final_image_url,
+                    caption,
+                )
+                await _wait_for_container_ready(creation_id, graph_api_base_url)
+                media_id = await _publish_media_container(
+                    creation_id,
+                    graph_api_base_url,
+                )
 
                 run_row = update_instagram_feed_run(
                     run_row["id"],
@@ -606,6 +650,7 @@ async def publish_daily_instagram_feed(
                     "final_image_url": final_image_url,
                     "instagram_creation_id": creation_id,
                     "instagram_media_id": media_id,
+                    "graph_api_host": graph_api_base_url,
                     "image_review": _serialize_image_review(image_review),
                     "image_review_enabled": settings.INSTAGRAM_IMAGE_REVIEW_ENABLED,
                     "used_fallback_image": bool(render_metadata.get("usedFallback")),
