@@ -558,18 +558,18 @@ export default function HomePageClient({
             <p className="mt-2 text-sm leading-relaxed text-white/85">
               실시간 트렌드와 주변 판매처를 한 번에 확인하세요.
             </p>
-            <div className="mt-4 flex gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               <Link
-                href="/map"
+                href="#trends"
                 className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-primary shadow-sm transition-colors hover:bg-purple-50"
               >
-                지도 바로 보기
+                지금 뜨는 트렌드 보기
               </Link>
               <Link
-                href="/report"
+                href="/map"
                 className="rounded-xl border border-white/30 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
               >
-                판매처 제보
+                지도에서 판매처 찾기
               </Link>
             </div>
             {lastUpdatedLabel ? (
@@ -580,14 +580,120 @@ export default function HomePageClient({
           </div>
         </section>
 
-        <InstallPrompt />
+        <div id="trends" className="scroll-mt-24">
+          {loading ? (
+            <section>
+              <div className="flex flex-col gap-8">
+                {[1, 2, 3].map((index) => (
+                  <div
+                    key={index}
+                    className="bg-white rounded-2xl p-4 animate-pulse h-24"
+                  />
+                ))}
+              </div>
+            </section>
+          ) : trends.length === 0 ? (
+            <section>
+              <div className="text-center py-14 text-gray-400">
+                <p className="text-5xl mb-4">🍽️</p>
+                <p className="font-semibold text-gray-600 text-base">
+                  아직 유행하는 음식을 찾는 중이에요!
+                </p>
+                <p className="text-sm mt-2 text-gray-400">
+                  크롤러가 SNS를 샅샅이 뒤지고 있어요 🔍
+                </p>
+              </div>
+            </section>
+          ) : (
+            <>
+              {(() => {
+                const viralTrends = trends.filter((t) => t.type === "viral");
+                const topTrend = viralTrends[0];
+                const restViral = viralTrends.slice(1);
+                return viralTrends.length > 0 ? (
+                  <>
+                    {topTrend && (
+                      <section className="mb-8">
+                        <Link href={`/trend/${topTrend.id}`}>
+                          <div className="relative rounded-2xl overflow-hidden shadow-lg">
+                            <div className="relative h-56 w-full bg-gray-100">
+                              {topTrend.image_url ? (
+                                <Image
+                                  src={topTrend.image_url}
+                                  alt={topTrend.name}
+                                  fill
+                                  sizes="(max-width: 512px) 100vw, 512px"
+                                  className="object-cover"
+                                  priority
+                                />
+                              ) : (
+                                <div className="w-full h-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center text-6xl">
+                                  🔥
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                              <div className="absolute top-3 left-3">
+                                <span className="bg-red-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-full">
+                                  🔥 지금 가장 핫한
+                                </span>
+                              </div>
+                              <div className="absolute bottom-0 left-0 right-0 p-4">
+                                <h2 className="text-2xl font-bold text-white tracking-[-0.03em]">{topTrend.name}</h2>
+                                <p className="text-sm text-white/85 mt-1 line-clamp-2">
+                                  {topTrend.description || "곧 설명이 추가됩니다"}
+                                </p>
+                                <div className="flex items-center gap-3 mt-2 text-xs text-white/70">
+                                  <span>인기도 {Math.min(topTrend.peak_score, 100)}%</span>
+                                  <span>판매처 {topTrend.store_count || 0}곳</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </Link>
+                      </section>
+                    )}
+                    {restViral.length > 0 && (
+                      <section className="mb-8">
+                        <div className="mb-3 flex items-center justify-between">
+                          <h3 className="font-bold text-gray-900">🔥 지금 뜨는 트렌드</h3>
+                          <span className="text-xs text-gray-400">
+                            {restViral.length}개
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-8">
+                          {restViral.map((trend) => (
+                            <TrendCard key={trend.id} trend={trend} />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+                  </>
+                ) : null;
+              })()}
 
-        <div className="flex justify-center mb-2">
-          <PushSubscribeButton />
+              {trends.filter((t) => t.type === "steady").length > 0 && (
+                <section>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="font-bold text-gray-900">🏅 스테디셀러</h3>
+                    <span className="text-xs text-gray-400">
+                      {trends.filter((t) => t.type === "steady").length}개
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-8">
+                    {trends
+                      .filter((t) => t.type === "steady")
+                      .map((trend) => (
+                        <TrendCard key={trend.id} trend={trend} />
+                      ))}
+                  </div>
+                </section>
+              )}
+            </>
+          )}
         </div>
 
         {showLocationNotice ? (
-          <section className="mb-6">
+          <section className="mb-6 mt-8">
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
               <p className="text-sm font-semibold text-amber-900">
                 {locationNoticeTitle}
@@ -637,9 +743,14 @@ export default function HomePageClient({
         ) : null}
 
         {nearbyStores.length > 0 ? (
-          <section className="mb-6">
+          <section className="mb-6 mt-8">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-bold text-gray-900">📍 내 근처 판매처</h3>
+              <div>
+                <h3 className="font-bold text-gray-900">내 근처 판매처</h3>
+                <p className="mt-1 text-xs text-gray-500">
+                  트렌드를 확인했다면, 이제 가까운 판매처를 바로 찾아보세요.
+                </p>
+              </div>
               <Link href="/map" className="text-xs text-primary font-medium">
                 지도에서 보기
               </Link>
@@ -689,115 +800,13 @@ export default function HomePageClient({
           </section>
         ) : null}
 
-        {loading ? (
-          <section>
-            <div className="flex flex-col gap-8">
-              {[1, 2, 3].map((index) => (
-                <div
-                  key={index}
-                  className="bg-white rounded-2xl p-4 animate-pulse h-24"
-                />
-              ))}
-            </div>
-          </section>
-        ) : trends.length === 0 ? (
-          <section>
-            <div className="text-center py-14 text-gray-400">
-              <p className="text-5xl mb-4">🍽️</p>
-              <p className="font-semibold text-gray-600 text-base">
-                아직 유행하는 음식을 찾는 중이에요!
-              </p>
-              <p className="text-sm mt-2 text-gray-400">
-                크롤러가 SNS를 샅샅이 뒤지고 있어요 🔍
-              </p>
-            </div>
-          </section>
-        ) : (
-          <>
-            {(() => {
-              const viralTrends = trends.filter((t) => t.type === "viral");
-              const topTrend = viralTrends[0];
-              const restViral = viralTrends.slice(1);
-              return viralTrends.length > 0 ? (
-                <>
-                  {topTrend && (
-                    <section className="mb-8">
-                      <Link href={`/trend/${topTrend.id}`}>
-                        <div className="relative rounded-2xl overflow-hidden shadow-lg">
-                          <div className="relative h-56 w-full bg-gray-100">
-                            {topTrend.image_url ? (
-                              <Image
-                                src={topTrend.image_url}
-                                alt={topTrend.name}
-                                fill
-                                sizes="(max-width: 512px) 100vw, 512px"
-                                className="object-cover"
-                                priority
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center text-6xl">
-                                🔥
-                              </div>
-                            )}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                            <div className="absolute top-3 left-3">
-                              <span className="bg-red-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-full">
-                                🔥 지금 가장 핫한
-                              </span>
-                            </div>
-                            <div className="absolute bottom-0 left-0 right-0 p-4">
-                              <h2 className="text-2xl font-bold text-white tracking-[-0.03em]">{topTrend.name}</h2>
-                              <p className="text-sm text-white/85 mt-1 line-clamp-2">
-                                {topTrend.description || "곧 설명이 추가됩니다"}
-                              </p>
-                              <div className="flex items-center gap-3 mt-2 text-xs text-white/70">
-                                <span>인기도 {Math.min(topTrend.peak_score, 100)}%</span>
-                                <span>판매처 {topTrend.store_count || 0}곳</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </Link>
-                    </section>
-                  )}
-                  {restViral.length > 0 && (
-                    <section className="mb-8">
-                      <div className="mb-3 flex items-center justify-between">
-                        <h3 className="font-bold text-gray-900">🔥 지금 뜨는 트렌드</h3>
-                        <span className="text-xs text-gray-400">
-                          {restViral.length}개
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-8">
-                        {restViral.map((trend) => (
-                          <TrendCard key={trend.id} trend={trend} />
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                </>
-              ) : null;
-            })()}
+        <div className="mt-8">
+          <InstallPrompt />
+        </div>
 
-            {trends.filter((t) => t.type === "steady").length > 0 && (
-              <section>
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="font-bold text-gray-900">🏅 스테디셀러</h3>
-                  <span className="text-xs text-gray-400">
-                    {trends.filter((t) => t.type === "steady").length}개
-                  </span>
-                </div>
-                <div className="flex flex-col gap-8">
-                  {trends
-                    .filter((t) => t.type === "steady")
-                    .map((trend) => (
-                      <TrendCard key={trend.id} trend={trend} />
-                    ))}
-                </div>
-              </section>
-            )}
-          </>
-        )}
+        <div className="mb-2 mt-4 flex justify-center">
+          <PushSubscribeButton />
+        </div>
         <Footer />
       </main>
       <ScrollToTop />
