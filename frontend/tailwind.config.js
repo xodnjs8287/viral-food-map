@@ -13,6 +13,26 @@ module.exports = {
         accent: "#C084FC",
         dark: "#1A1A2E",
       },
+      keyframes: {
+        "confetti-burst": {
+          "0%": {
+            opacity: "1",
+            transform: "translate(0, 0) rotate(0deg) scale(1)",
+          },
+          "70%": {
+            opacity: "1",
+          },
+          "100%": {
+            opacity: "0",
+            transform:
+              "translate(var(--tx), var(--ty)) rotate(var(--rot)) scale(0.4)",
+          },
+        },
+      },
+      animation: {
+        "confetti-burst":
+          "confetti-burst var(--dur) ease-out var(--delay) forwards",
+      },
     },
   },
   plugins: [],

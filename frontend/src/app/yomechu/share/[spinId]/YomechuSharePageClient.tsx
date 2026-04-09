@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 
 import BottomNav from "@/components/BottomNav";
+import EmojiConfetti from "@/components/EmojiConfetti";
 import Header from "@/components/Header";
 import ShareButton from "@/components/ShareButton";
 import { openExternalUrl } from "@/lib/external-links";
@@ -81,6 +82,13 @@ export default function YomechuSharePageClient({
 }: YomechuSharePageClientProps) {
   const primaryWinner = winners[0] ?? null;
 
+  const [confetti, setConfetti] = useState(false);
+  useEffect(() => {
+    if (primaryWinner) {
+      setConfetti(true);
+    }
+  }, [primaryWinner]);
+
   const handleTrackShare = useCallback(() => {
     if (!primaryWinner) {
       return;
@@ -135,6 +143,7 @@ export default function YomechuSharePageClient({
 
   return (
     <>
+      <EmojiConfetti fire={confetti} />
       <Header />
       <main className="page-with-bottom-nav mx-auto max-w-lg px-4 py-4">
         <motion.section

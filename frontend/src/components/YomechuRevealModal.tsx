@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 
 import { formatDistanceMeters } from "@/lib/crawler";
 import type { YomechuPlace, YomechuSpinResponse } from "@/lib/types";
+import EmojiConfetti from "@/components/EmojiConfetti";
 import ShareButton from "@/components/ShareButton";
 import { Haptics, NotificationType } from "@capacitor/haptics";
 
@@ -211,6 +212,8 @@ export default function YomechuRevealModal({
 
   const activePlace = phase === "winner" ? primaryWinner : (reel[currentIndex] ?? primaryWinner);
 
+  const confettiFired = phase === "winner" && isOpen;
+
   return (
     <AnimatePresence>
       {isOpen ? (
@@ -220,6 +223,7 @@ export default function YomechuRevealModal({
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[80] flex items-end justify-center overflow-hidden bg-gray-950/55 px-4 py-4 backdrop-blur-sm sm:items-center"
         >
+          <EmojiConfetti fire={confettiFired} />
           <motion.div
             initial={{ opacity: 0, y: 32, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
