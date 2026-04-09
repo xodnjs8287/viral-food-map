@@ -17,6 +17,11 @@ export default function NativeInitializer() {
       body.classList.add("native-app");
       body.dataset.platform = platform;
 
+      // Geolocation 모듈 사전 로드 + 네이티브 브릿지 워밍업
+      import("@capacitor/geolocation").then(({ Geolocation }) => {
+        Geolocation.checkPermissions(); // fire-and-forget, 권한 다이얼로그 표시 안 함
+      });
+
       return () => {
         documentElement.classList.remove("native-app");
         delete documentElement.dataset.platform;

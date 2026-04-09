@@ -224,7 +224,7 @@ export default function HomePageClient({
   const requestUserLocation = useCallback(() => {
     setLocationStatus("loading");
 
-    getCurrentPosition({ enableHighAccuracy: true, timeout: 8000 })
+    getCurrentPosition({ timeout: 5000 })
       .then((nextLocation) => {
         if (!hasUsableCoordinates(nextLocation)) {
           throw new Error("INVALID_POSITION");

@@ -8,6 +8,7 @@ import KakaoMap from "@/components/KakaoMap";
 import ScrollToTop from "@/components/ScrollToTop";
 import StoreList from "@/components/StoreList";
 import TrendBadge from "@/components/TrendBadge";
+import { getCurrentPosition } from "@/lib/native-geolocation";
 import ShareButton from "@/components/ShareButton";
 import type { Trend, Store } from "@/lib/types";
 
@@ -88,44 +89,23 @@ export default function TrendDetailPageClient({
 
   const requestLocation = useCallback(
     () =>
-      new Promise<UserLocation | null>((resolve) => {
-        if (!navigator.geolocation) {
-          setUserLoc(null);
-          setLocationMessage(
-            "위치 기능을 지원하지 않아 가까운 판매처 기준으로 지도를 보여드리고 있어요."
-          );
+      getCurrentPosition({ timeout: 5000 })
+        .then((nextLocation) => {
+          setUserLoc(nextLocation);
+          setLocationMessage(null);
           setCanRetryLocation(false);
-          resolve(null);
-          return;
-        }
-
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            const nextLocation = {
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-            };
-
-            setUserLoc(nextLocation);
-            setLocationMessage(null);
-            setCanRetryLocation(false);
-            resolve(nextLocation);
-          },
-          () => {
-            setUserLoc(null);
-            setLocationMessage(
-              "브라우저 위치 권한이 없어 가까운 판매처 기준으로 지도를 보여드리고 있어요."
-            );
-            setCanRetryLocation(true);
-            resolve(null);
-          },
-          {
-            enableHighAccuracy: true,
-            timeout: 8000,
-            maximumAge: 0,
-          }
-        );
-      }),
+          return nextLocation as UserLocation | null;
+        })
+        .catch((err) => {
+          setUserLoc(null);
+          const msg =
+            err?.message === "GEOLOCATION_NOT_SUPPORTED"
+              ? "위치 기능을 지원하지 않아 가까운 판매처 기준으로 지도를 보여드리고 있어요."
+              : "브라우저 위치 권한이 없어 가까운 판매처 기준으로 지도를 보여드리고 있어요.";
+          setLocationMessage(msg);
+          setCanRetryLocation(err?.message !== "GEOLOCATION_NOT_SUPPORTED");
+          return null as UserLocation | null;
+        }),
     []
   );
 
