@@ -36,6 +36,7 @@ export default function AdminPageClient() {
   const [authChecked, setAuthChecked] = useState(false);
   const [tab, setTab] = useState<AdminTab>("dashboard");
   const [pendingCount, setPendingCount] = useState(0);
+  const isAdmin = user?.app_metadata?.role === "admin";
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -64,6 +65,28 @@ export default function AdminPageClient() {
 
   if (!user) {
     return <LoginForm onLogin={setUser} />;
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-lg">
+          <h1 className="text-xl font-bold text-gray-900">관리자 권한이 필요합니다</h1>
+          <p className="mt-2 text-sm text-gray-400">
+            현재 계정은 어드민 페이지에 접근할 수 없습니다.
+          </p>
+          <button
+            onClick={async () => {
+              await supabase.auth.signOut();
+              setUser(null);
+            }}
+            className="mt-6 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-purple-600"
+          >
+            로그아웃
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
