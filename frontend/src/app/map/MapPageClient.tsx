@@ -89,6 +89,8 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
 
     if (selectedTrendId !== "all") {
       query = query.eq("trend_id", selectedTrendId);
+    } else if (trends.length > 0) {
+      query = query.in("trend_id", trends.map((t) => t.id));
     }
 
     query.then(({ data }) => {

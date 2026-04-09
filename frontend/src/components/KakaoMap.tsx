@@ -252,8 +252,6 @@ export default function KakaoMap({
       const infoOverlay = new kakao.maps.CustomOverlay({
         content: overlayContent,
         position,
-        xAnchor: 0.5,
-        yAnchor: 1,
         zIndex: 20,
       });
 
