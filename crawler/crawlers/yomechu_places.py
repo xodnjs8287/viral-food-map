@@ -298,18 +298,16 @@ def recency_score(last_enriched_at: str | None, last_seen_at: str | None) -> flo
 
 
 def compute_quality_score(place: dict[str, Any], radius_m: int) -> float:
-    distance_component = distance_score(place["distance_m"], radius_m) * 45
-    rating_component = rating_score(place.get("rating")) * 35
-    trend_component = (1 if place.get("trend_names") else 0) * 10
+    distance_component = distance_score(place["distance_m"], radius_m) * 25
+    rating_component = rating_score(place.get("rating")) * 30
     recency_component = recency_score(
         place.get("last_enriched_at"),
         place.get("last_seen_at"),
     ) * 5
-    jitter_component = random.random() * 5
+    jitter_component = random.random() * 40
     return round(
         distance_component
         + rating_component
-        + trend_component
         + recency_component
         + jitter_component,
         3,
@@ -323,7 +321,7 @@ def apply_quality_gate(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]
     filtered = [
         candidate
         for candidate in candidates
-        if candidate.get("rating") is not None or candidate.get("trend_names")
+        if candidate.get("rating") is not None
     ]
     return filtered or candidates
 
@@ -356,7 +354,7 @@ def build_reel(candidates: list[dict[str, Any]], winner: dict[str, Any]) -> list
 
 def build_response_item(place: dict[str, Any], requested_slug: str) -> dict[str, Any]:
     return {
-        "place_id": place["id"],
+        "place_id": place.get("external_place_id") or place["id"],
         "name": place["name"],
         "address": place["address"],
         "category_label": extract_category_label(
@@ -372,7 +370,7 @@ def build_response_item(place: dict[str, Any], requested_slug: str) -> dict[str,
 
 
 def to_place_row(place: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in place.items() if key != "distance_m"}
+    return {key: value for key, value in place.items() if key not in ("distance_m", "id", "quality_score")}
 
 
 async def find_yomechu_candidates(
@@ -400,50 +398,63 @@ async def find_yomechu_candidates(
     if not requested:
         raise YomechuNoResultsError("근처에서 조건에 맞는 매장을 찾지 못했습니다.")
 
-    trend_lookup = get_trend_lookup()
-    external_ids = [str(doc["id"]) for doc in requested]
-    existing_rows = {
-        row["external_place_id"]: row
-        for row in await asyncio.to_thread(get_yomechu_places_by_external_ids, external_ids)
-    }
-
-    merged_places: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
     for doc in requested:
-        existing = existing_rows.get(str(doc["id"]))
-        merged = merge_live_place(doc, trend_lookup, existing)
-        merged["distance_m"] = int(doc.get("distance") or 0)
-        merged_places.append(merged)
+        address = doc.get("road_address_name") or doc.get("address_name") or ""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        candidates.append({
+            "external_place_id": str(doc["id"]),
+            "id": f"ext_{doc['id']}",
+            "name": doc["place_name"],
+            "address": address,
+            "lat": float(doc["y"]),
+            "lng": float(doc["x"]),
+            "phone": doc.get("phone") or None,
+            "place_url": doc.get("place_url") or None,
+            "category_name": doc.get("category_name") or CATEGORY_CONFIG["all"]["label"],
+            "category_slug": infer_category_slug(doc.get("category_name") or ""),
+            "rating": None,
+            "quality_score": None,
+            "trend_names": [],
+            "raw_payload": doc,
+            "first_seen_at": now_iso,
+            "last_seen_at": now_iso,
+            "last_enriched_at": None,
+            "distance_m": int(doc.get("distance") or 0),
+        })
 
-    merged_places = apply_quality_gate(merged_places)
-    if not merged_places:
+    candidates = apply_quality_gate(candidates)
+    if not candidates:
         raise YomechuNoResultsError("추천 후보를 충분히 찾지 못했습니다.")
 
-    for place in merged_places:
+    for place in candidates:
         place["quality_score"] = compute_quality_score(place, radius_m)
-
-    upserted_rows = await asyncio.to_thread(
-        upsert_yomechu_places, [to_place_row(place) for place in merged_places]
-    )
-    upserted_by_ext_id = {
-        row["external_place_id"]: row for row in upserted_rows
-    }
-
-    candidates: list[dict[str, Any]] = []
-    for place in merged_places:
-        refreshed = upserted_by_ext_id.get(place["external_place_id"])
-        if not refreshed:
-            continue
-        candidates.append(
-            {
-                **refreshed,
-                "distance_m": place["distance_m"],
-                "quality_score": place["quality_score"],
-                "trend_names": place.get("trend_names", refreshed.get("trend_names", [])),
-            }
-        )
 
     candidates.sort(key=lambda item: item["quality_score"], reverse=True)
     return candidates, used_fallback
+
+
+async def _persist_spin_background(
+    merged_places: list[dict[str, Any]],
+    spin_data: dict[str, Any],
+) -> None:
+    try:
+        upserted_rows = await asyncio.to_thread(
+            upsert_yomechu_places, merged_places
+        )
+        ext_to_db_id = {
+            row["external_place_id"]: row["id"] for row in upserted_rows
+        }
+
+        winner_ext_ids = spin_data.pop("_winner_ext_ids", [])
+        reel_ext_ids = spin_data.pop("_reel_ext_ids", [])
+        spin_data["winner_place_id"] = ext_to_db_id.get(winner_ext_ids[0]) if winner_ext_ids else None
+        spin_data["winner_place_ids"] = [ext_to_db_id[eid] for eid in winner_ext_ids if eid in ext_to_db_id]
+        spin_data["reel_place_ids"] = [ext_to_db_id[eid] for eid in reel_ext_ids if eid in ext_to_db_id]
+
+        await asyncio.to_thread(insert_yomechu_spin, spin_data)
+    except Exception:
+        logger.exception("요메추 백그라운드 DB 저장 실패")
 
 
 async def spin_yomechu(
@@ -476,24 +487,25 @@ async def spin_yomechu(
     primary_winner = winners[0]
     reel = build_reel(pool, primary_winner)
 
-    spin_row = await asyncio.to_thread(
-        insert_yomechu_spin,
-        {
-            "session_id": session_id,
-            "lat_rounded": round(lat, 3),
-            "lng_rounded": round(lng, 3),
-            "radius_m": radius_m,
-            "category_slug": category_slug,
-            "pool_size": len(candidates),
-            "used_fallback": used_fallback,
-            "winner_place_id": primary_winner["id"],
-            "winner_place_ids": [item["id"] for item in winners],
-            "reel_place_ids": [item["id"] for item in reel],
-        },
+    asyncio.create_task(
+        _persist_spin_background(
+            merged_places=[to_place_row(c) for c in candidates],
+            spin_data={
+                "session_id": session_id,
+                "lat_rounded": round(lat, 3),
+                "lng_rounded": round(lng, 3),
+                "radius_m": radius_m,
+                "category_slug": category_slug,
+                "pool_size": len(candidates),
+                "used_fallback": used_fallback,
+                "_winner_ext_ids": [item["external_place_id"] for item in winners],
+                "_reel_ext_ids": [item["external_place_id"] for item in reel],
+            },
+        )
     )
 
     return {
-        "spin_id": spin_row["id"] if spin_row else None,
+        "spin_id": None,
         "pool_size": len(candidates),
         "used_fallback": used_fallback,
         "result_count": len(winners),
