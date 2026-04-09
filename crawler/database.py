@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -13,6 +14,9 @@ from config import settings
 _client: Client | None = None
 logger = logging.getLogger(__name__)
 _warned_failures: set[str] = set()
+UUID_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 def _warn_once(key: str, message: str, exc: Exception) -> None:
@@ -316,6 +320,24 @@ def get_yomechu_places_by_external_ids(
     )
 
 
+def is_uuid_like(value: str | None) -> bool:
+    return bool(value and UUID_PATTERN.fullmatch(value))
+
+
+def resolve_yomechu_feedback_place_id(place_id: str | None) -> str | None:
+    if not place_id:
+        return None
+
+    if is_uuid_like(place_id):
+        return place_id
+
+    rows = get_yomechu_places_by_external_ids([place_id])
+    if not rows:
+        return None
+
+    return rows[0].get("id")
+
+
 def insert_yomechu_spin(spin_row: dict[str, Any]) -> dict[str, Any] | None:
     result = get_client().table("yomechu_spins").insert(spin_row).execute()
     data = result.data or []
@@ -323,7 +345,18 @@ def insert_yomechu_spin(spin_row: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def insert_yomechu_feedback(feedback_row: dict[str, Any]) -> dict[str, Any] | None:
-    result = get_client().table("yomechu_feedback").insert(feedback_row).execute()
+    payload = dict(feedback_row)
+    original_place_id = payload.get("place_id")
+    resolved_place_id = resolve_yomechu_feedback_place_id(original_place_id)
+
+    if original_place_id and resolved_place_id != original_place_id:
+        metadata = dict(payload.get("payload") or {})
+        metadata.setdefault("raw_place_id", original_place_id)
+        payload["payload"] = metadata
+
+    payload["place_id"] = resolved_place_id
+
+    result = get_client().table("yomechu_feedback").insert(payload).execute()
     data = result.data or []
     return data[0] if data else None
 

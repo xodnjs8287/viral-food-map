@@ -26,6 +26,9 @@ KAKAO_CATEGORY_URL = "https://dapi.kakao.com/v2/local/search/category.json"
 KAKAO_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 PAGE_SIZE = 15
 MAX_PAGES = 3
+UUID_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 class YomechuNoResultsError(RuntimeError):
@@ -352,9 +355,17 @@ def build_reel(candidates: list[dict[str, Any]], winner: dict[str, Any]) -> list
     return reel
 
 
+def is_uuid_like(value: str | None) -> bool:
+    return bool(value and UUID_PATTERN.fullmatch(value))
+
+
 def build_response_item(place: dict[str, Any], requested_slug: str) -> dict[str, Any]:
+    response_place_id = place.get("id")
+    if not is_uuid_like(response_place_id):
+        response_place_id = place.get("external_place_id") or place["id"]
+
     return {
-        "place_id": place.get("external_place_id") or place["id"],
+        "place_id": response_place_id,
         "name": place["name"],
         "address": place["address"],
         "category_label": extract_category_label(
@@ -381,6 +392,22 @@ def dedupe_places_by_external_id(places: list[dict[str, Any]]) -> list[dict[str,
         deduped.setdefault(external_place_id, place)
 
     return list(deduped.values())
+
+
+def apply_persisted_place_ids(
+    places: list[dict[str, Any]],
+    ext_to_db_id: dict[str, str],
+) -> list[dict[str, Any]]:
+    hydrated_places: list[dict[str, Any]] = []
+
+    for place in places:
+        db_place_id = ext_to_db_id.get(str(place["external_place_id"]))
+        if db_place_id:
+            hydrated_places.append({**place, "id": db_place_id})
+        else:
+            hydrated_places.append(place)
+
+    return hydrated_places
 
 
 async def find_yomechu_candidates(
@@ -470,7 +497,7 @@ async def _persist_spin_background(
 async def _persist_spin_record(
     places: list[dict[str, Any]],
     spin_data: dict[str, Any],
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, dict[str, str]]:
     upserted_rows = await asyncio.to_thread(upsert_yomechu_places, places)
     ext_to_db_id = {
         row["external_place_id"]: row["id"] for row in upserted_rows
@@ -483,7 +510,8 @@ async def _persist_spin_record(
     payload["winner_place_ids"] = [ext_to_db_id[eid] for eid in winner_ext_ids if eid in ext_to_db_id]
     payload["reel_place_ids"] = [ext_to_db_id[eid] for eid in reel_ext_ids if eid in ext_to_db_id]
 
-    return await asyncio.to_thread(insert_yomechu_spin, payload)
+    spin_row = await asyncio.to_thread(insert_yomechu_spin, payload)
+    return spin_row, ext_to_db_id
 
 
 async def _persist_places_background(places: list[dict[str, Any]]) -> None:
@@ -540,11 +568,17 @@ async def spin_yomechu(
     }
 
     spin_row = None
+    response_reel = reel
+    response_winner = primary_winner
+    response_winners = winners
     try:
-        spin_row = await _persist_spin_record(
+        spin_row, ext_to_db_id = await _persist_spin_record(
             places=[to_place_row(place) for place in spin_places],
             spin_data=spin_data,
         )
+        response_reel = apply_persisted_place_ids(reel, ext_to_db_id)
+        response_winners = apply_persisted_place_ids(winners, ext_to_db_id)
+        response_winner = response_winners[0]
     except Exception:
         logger.exception("yomechu shareable spin save failed")
         asyncio.create_task(
@@ -567,9 +601,9 @@ async def spin_yomechu(
         "pool_size": len(candidates),
         "used_fallback": used_fallback,
         "result_count": len(winners),
-        "reel": [build_response_item(item, category_slug) for item in reel],
-        "winner": build_response_item(primary_winner, category_slug),
-        "winners": [build_response_item(item, category_slug) for item in winners],
+        "reel": [build_response_item(item, category_slug) for item in response_reel],
+        "winner": build_response_item(response_winner, category_slug),
+        "winners": [build_response_item(item, category_slug) for item in response_winners],
     }
 
 
