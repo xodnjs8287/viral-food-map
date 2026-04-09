@@ -22,15 +22,27 @@ interface KakaoMapProps {
   onBoundsChange?: (bounds: MapBounds) => void;
   autoFitBounds?: boolean;
   onRequestCurrentLocation?: () => Promise<{ lat: number; lng: number } | null>;
+  /** trend_id → 트렌드 이름 매핑 (지도 마커에 트렌드 라벨 표시) */
+  trendLabels?: Record<string, string>;
 }
 
-function escapeInfoWindowText(value: string) {
+function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+const MARKER_COLORS = [
+  "#9B7DD4", "#E8726E", "#4A9BD9", "#F5A623", "#50C878",
+  "#FF6B9D", "#45B7D1", "#96CEB4", "#D4A574", "#7B68EE",
+];
+
+function getTrendColor(trendId: string, allTrendIds: string[]): string {
+  const idx = allTrendIds.indexOf(trendId);
+  return MARKER_COLORS[idx >= 0 ? idx % MARKER_COLORS.length : 0];
 }
 
 export default function KakaoMap({
@@ -44,14 +56,15 @@ export default function KakaoMap({
   onBoundsChange,
   autoFitBounds = true,
   onRequestCurrentLocation,
+  trendLabels = {},
 }: KakaoMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<kakao.maps.Map | null>(null);
   const [loaded, setLoaded] = useState(false);
   const markerMapRef = useRef<
-    Map<string, { marker: kakao.maps.Marker; infoWindow: kakao.maps.InfoWindow }>
+    Map<string, { markerOverlay: kakao.maps.CustomOverlay; infoOverlay: kakao.maps.CustomOverlay }>
   >(new Map());
-  const openInfoWindowRef = useRef<kakao.maps.InfoWindow | null>(null);
+  const openOverlayRef = useRef<kakao.maps.CustomOverlay | null>(null);
   const currentLocationOverlayRef = useRef<kakao.maps.CustomOverlay | null>(null);
   const onBoundsChangeRef = useRef(onBoundsChange);
 
@@ -168,24 +181,58 @@ export default function KakaoMap({
   useEffect(() => {
     if (!map || stores.length === 0) return;
 
-    const markers: kakao.maps.Marker[] = [];
+    const allTrendIds = Object.keys(trendLabels);
+    const markerOverlays: kakao.maps.CustomOverlay[] = [];
     const bounds = new kakao.maps.LatLngBounds();
     const newMarkerMap = new Map<
       string,
-      { marker: kakao.maps.Marker; infoWindow: kakao.maps.InfoWindow }
+      { markerOverlay: kakao.maps.CustomOverlay; infoOverlay: kakao.maps.CustomOverlay }
     >();
+
+    const closeOpenOverlay = () => {
+      if (openOverlayRef.current) {
+        openOverlayRef.current.setMap(null);
+        openOverlayRef.current = null;
+      }
+    };
+
+    // 지도 클릭 시 오버레이 닫기
+    kakao.maps.event.addListener(map, "click", closeOpenOverlay);
 
     stores.forEach((store) => {
       const position = new kakao.maps.LatLng(store.lat, store.lng);
       bounds.extend(position);
 
-      const marker = new kakao.maps.Marker({ position, map });
-      const storeName = escapeInfoWindowText(store.name);
-      const storeAddress = escapeInfoWindowText(store.address);
-      const storePhone = store.phone ? escapeInfoWindowText(store.phone) : null;
+      // 트렌드 라벨 마커
+      const trendName = trendLabels[store.trend_id];
+      const color = getTrendColor(store.trend_id, allTrendIds);
+      const label = trendName ? escapeHtml(trendName) : "📍";
 
-      const infoContent = `
-        <div class="kakao-store-infowindow">
+      const pinEl = document.createElement("div");
+      pinEl.className = "kakao-trend-pin";
+      pinEl.innerHTML = `
+        <div class="kakao-trend-pin__label" style="background:${color};">${label}</div>
+        <div class="kakao-trend-pin__tail" style="border-top-color:${color};"></div>
+      `;
+
+      const markerOverlay = new kakao.maps.CustomOverlay({
+        content: pinEl,
+        position,
+        yAnchor: 1,
+        zIndex: 5,
+      });
+      markerOverlay.setMap(map);
+
+      // 상세 정보 오버레이
+      const storeName = escapeHtml(store.name);
+      const storeAddress = escapeHtml(store.address);
+      const storePhone = store.phone ? escapeHtml(store.phone) : null;
+
+      const overlayContent = document.createElement("div");
+      overlayContent.className = "kakao-store-overlay";
+      overlayContent.innerHTML = `
+        <div class="kakao-store-overlay__content">
+          <button class="kakao-store-overlay__close" aria-label="닫기">&times;</button>
           <strong class="kakao-store-infowindow__name">${storeName}</strong>
           <span class="kakao-store-infowindow__address">${storeAddress}</span>
           ${
@@ -194,22 +241,31 @@ export default function KakaoMap({
               : ""
           }
         </div>
+        <div class="kakao-store-overlay__tail"></div>
       `;
 
-      const infoWindow = new kakao.maps.InfoWindow({
-        content: infoContent,
-        removable: true,
+      const infoOverlay = new kakao.maps.CustomOverlay({
+        content: overlayContent,
+        position,
+        yAnchor: 1.6,
+        zIndex: 20,
       });
 
-      kakao.maps.event.addListener(marker, "click", () => {
-        if (openInfoWindowRef.current) openInfoWindowRef.current.close();
-        infoWindow.open(map, marker);
-        openInfoWindowRef.current = infoWindow;
+      overlayContent.querySelector(".kakao-store-overlay__close")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        infoOverlay.setMap(null);
+        if (openOverlayRef.current === infoOverlay) openOverlayRef.current = null;
+      });
+
+      pinEl.addEventListener("click", () => {
+        closeOpenOverlay();
+        infoOverlay.setMap(map);
+        openOverlayRef.current = infoOverlay;
         onMarkerClick?.(store.id);
       });
 
-      newMarkerMap.set(store.id, { marker, infoWindow });
-      markers.push(marker);
+      newMarkerMap.set(store.id, { markerOverlay, infoOverlay });
+      markerOverlays.push(markerOverlay);
     });
 
     markerMapRef.current = newMarkerMap;
@@ -223,19 +279,16 @@ export default function KakaoMap({
       }
     }
 
-    const clusterer = new kakao.maps.MarkerClusterer({
-      map,
-      averageCenter: true,
-      minLevel: 6,
-    });
-    clusterer.addMarkers(markers);
-
     return () => {
-      clusterer.clear();
-      markers.forEach((m) => m.setMap(null));
+      closeOpenOverlay();
+      kakao.maps.event.removeListener(map, "click", closeOpenOverlay);
+      newMarkerMap.forEach(({ markerOverlay, infoOverlay }) => {
+        markerOverlay.setMap(null);
+        infoOverlay.setMap(null);
+      });
       markerMapRef.current.clear();
     };
-  }, [map, stores]);
+  }, [map, stores, trendLabels]);
 
   // React to external selection (from StoreList click)
   useEffect(() => {
@@ -243,10 +296,13 @@ export default function KakaoMap({
     const entry = markerMapRef.current.get(selectedStoreId);
     if (!entry) return;
 
-    if (openInfoWindowRef.current) openInfoWindowRef.current.close();
-    map.panTo(entry.marker.getPosition());
-    entry.infoWindow.open(map, entry.marker);
-    openInfoWindowRef.current = entry.infoWindow;
+    if (openOverlayRef.current) {
+      openOverlayRef.current.setMap(null);
+      openOverlayRef.current = null;
+    }
+    map.panTo(entry.markerOverlay.getPosition());
+    entry.infoOverlay.setMap(map);
+    openOverlayRef.current = entry.infoOverlay;
   }, [map, selectedStoreId]);
 
   const panToLocation = (location: { lat: number; lng: number }) => {

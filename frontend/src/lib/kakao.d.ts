@@ -85,8 +85,11 @@ declare namespace kakao.maps {
       content: HTMLElement | string;
       map?: Map;
       zIndex?: number;
+      xAnchor?: number;
+      yAnchor?: number;
     });
     setMap(map: Map | null): void;
+    getPosition(): LatLng;
   }
 
   class MarkerClusterer {
@@ -103,6 +106,7 @@ declare namespace kakao.maps {
 
   namespace event {
     function addListener(target: any, type: string, handler: Function): void;
+    function removeListener(target: any, type: string, handler: Function): void;
   }
 
   namespace services {

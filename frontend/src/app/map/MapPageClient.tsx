@@ -79,7 +79,7 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
     let query = supabase
       .from("stores")
       .select(
-        "id, name, address, lat, lng, phone, place_url, rating, verified, trend_id, trends(name)"
+        "id, name, address, lat, lng, phone, place_url, rating, source, verified, is_franchise, last_updated, trend_id, trends(name)"
       )
       .gte("lat", mapBounds.sw.lat)
       .lte("lat", mapBounds.ne.lat)
@@ -96,6 +96,7 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
         setStores(
           data.map((store: any) => ({
             ...store,
+            is_franchise: Boolean(store.is_franchise),
             trend_name: store.trends?.name,
           })) as MapStore[]
         );
@@ -124,6 +125,12 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
     if (filteredStores.some((store) => store.id === selectedStoreId)) return;
     setSelectedStoreId(null);
   }, [filteredStores, selectedStoreId]);
+
+  const trendLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of trends) map[t.id] = t.name;
+    return map;
+  }, [trends]);
 
   const hasStoreQuery = storeQuery.trim().length > 0;
   const showSearchInput = stores.length > 3 || hasStoreQuery;
@@ -190,6 +197,7 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
             onBoundsChange={setMapBounds}
             autoFitBounds={false}
             onRequestCurrentLocation={requestLocation}
+            trendLabels={trendLabels}
           />
         ) : (
           <div className="map-container !h-[60vh] bg-gray-100 flex items-center justify-center rounded-xl">

@@ -202,6 +202,7 @@ export default function TrendDetailPageClient({
           selectedStoreId={selectedStoreId}
           onMarkerClick={setSelectedStoreId}
           onRequestCurrentLocation={requestLocation}
+          trendLabels={{ [initialTrend.id]: initialTrend.name }}
         />
 
         {locationMessage && (
