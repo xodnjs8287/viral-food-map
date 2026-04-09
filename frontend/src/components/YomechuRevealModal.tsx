@@ -218,7 +218,7 @@ export default function YomechuRevealModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[80] flex items-end justify-center overflow-y-auto bg-gray-950/55 px-4 py-4 backdrop-blur-sm overscroll-contain sm:items-center"
+          className="fixed inset-0 z-[80] flex items-end justify-center overflow-hidden bg-gray-950/55 px-4 py-4 backdrop-blur-sm sm:items-center"
         >
           <motion.div
             initial={{ opacity: 0, y: 32, scale: 0.96 }}
