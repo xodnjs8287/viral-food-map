@@ -335,6 +335,12 @@ export default function HomePageClient({
       return;
     }
 
+    const activeTrendIds = new Set(trends.map((trend) => trend.id));
+    if (activeTrendIds.size === 0) {
+      setNearbyStores([]);
+      return;
+    }
+
     const fetchNearby = async () => {
       const { data } = await supabase.rpc("get_nearby_trend_stores", {
         user_lat: userLoc.lat,
@@ -342,11 +348,15 @@ export default function HomePageClient({
         result_limit: 20,
       });
 
-      setNearbyStores(groupNearbyStores((data as NearbyTrendStore[]) ?? []));
+      const filteredStores = ((data as NearbyTrendStore[]) ?? []).filter((store) =>
+        activeTrendIds.has(store.trend_id)
+      );
+
+      setNearbyStores(groupNearbyStores(filteredStores));
     };
 
     fetchNearby();
-  }, [userLoc]);
+  }, [trends, userLoc]);
 
   const lastUpdatedLabel = lastUpdated
     ? new Date(lastUpdated).toLocaleString("ko-KR", {
@@ -580,9 +590,12 @@ export default function HomePageClient({
           </div>
         </section>
 
-        <div className="mb-6 flex justify-center">
-          <PushSubscribeButton />
-        </div>
+        <section className="mb-6">
+          <div className="flex justify-center">
+            <PushSubscribeButton />
+          </div>
+          <InstallPrompt />
+        </section>
 
         <div id="trends" className="scroll-mt-24">
           {loading ? (
@@ -803,10 +816,6 @@ export default function HomePageClient({
             </div>
           </section>
         ) : null}
-
-        <div className="mt-8">
-          <InstallPrompt />
-        </div>
 
         <Footer />
       </main>
