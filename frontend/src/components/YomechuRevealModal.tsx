@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { formatDistanceMeters } from "@/lib/crawler";
+import { playFireworkHaptics } from "@/lib/haptics";
 import type { YomechuPlace, YomechuSpinResponse } from "@/lib/types";
 import EmojiConfetti from "@/components/EmojiConfetti";
 import ShareButton from "@/components/ShareButton";
-import { Haptics, NotificationType } from "@capacitor/haptics";
 
 interface YomechuRevealModalProps {
   isOpen: boolean;
@@ -168,6 +168,7 @@ export default function YomechuRevealModal({
     }
 
     const timeouts: ReturnType<typeof setTimeout>[] = [];
+    let cleanupHaptics: (() => void) | null = null;
     let elapsed = 0;
     let frame = 0;
 
@@ -201,12 +202,14 @@ export default function YomechuRevealModal({
       setTimeout(() => {
         setPhase("winner");
         setCurrentIndex(Math.max(reel.length - 1, 0));
-        Haptics.notification({ type: NotificationType.Success }).catch(() => {});
+        cleanupHaptics?.();
+        cleanupHaptics = playFireworkHaptics();
       }, elapsed)
     );
 
     return () => {
       timeouts.forEach(clearTimeout);
+      cleanupHaptics?.();
     };
   }, [isOpen, primaryWinner, reel]);
 
