@@ -633,8 +633,10 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
                 for candidate in candidates
             ]
             try:
-                review_results = await review_discovered_keywords(review_payloads)
-                summary["ai_calls_used"] = 1
+                review_results, request_count = await review_discovered_keywords(
+                    review_payloads
+                )
+                summary["ai_calls_used"] += request_count
                 summary["ai_reviewed"] = len(review_payloads)
                 (
                     summary["ai_grounding_status"],
@@ -643,6 +645,7 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
                     summary["ai_grounding_sources"],
                 ) = _summarize_ai_grounding(review_results)
             except AIReviewError as exc:
+                summary["ai_calls_used"] += exc.request_count
                 summary["ai_fallback_details"].append(
                     _build_ai_detail_line(
                         "batch",

@@ -8,8 +8,10 @@ from datetime import datetime, timedelta, timezone
 
 from ai_reviewer import (
     AIReviewError,
+    TrendDescriptionPayload,
     TrendReviewPayload,
     TrendReviewResult,
+    generate_trend_descriptions,
     review_trend_candidates,
 )
 from automation_budget import (
@@ -242,36 +244,37 @@ def _is_ai_accept(review: TrendReviewResult) -> bool:
     )
 
 
-def _select_ai_description(
-    display_keyword: str,
+def _collect_description_snippets(
     group_candidates: list[dict],
-    review_results: dict[str, TrendReviewResult],
-) -> str | None:
-    best_description: str | None = None
-    best_score = (-1, -1.0, -1)
+    review_payloads_by_keyword: dict[str, TrendReviewPayload],
+) -> list[str]:
+    snippets: list[str] = []
+    seen: set[str] = set()
 
-    for candidate in group_candidates:
+    sorted_candidates = sorted(
+        group_candidates,
+        key=lambda candidate: float(candidate.get("score", 0.0)),
+        reverse=True,
+    )
+    for candidate in sorted_candidates:
         keyword = clean_display_keyword(candidate.get("keyword"))
         if not keyword:
             continue
 
-        review = review_results.get(keyword)
-        if review is None or not _is_ai_accept(review) or not review.description:
+        payload = review_payloads_by_keyword.get(keyword)
+        if payload is None:
             continue
 
-        matches_display_keyword = int(
-            keyword == display_keyword or review.canonical_keyword == display_keyword
-        )
-        score = (
-            matches_display_keyword,
-            review.confidence,
-            len(review.description),
-        )
-        if score > best_score:
-            best_score = score
-            best_description = review.description
+        for raw_snippet in payload.evidence_snippets:
+            snippet = " ".join(str(raw_snippet or "").split())
+            if not snippet or snippet in seen:
+                continue
+            seen.add(snippet)
+            snippets.append(snippet[:220])
+            if len(snippets) >= settings.AI_REVIEW_MAX_EVIDENCE_SNIPPETS:
+                return snippets
 
-    return best_description
+    return snippets
 
 
 def _build_summary() -> dict:
@@ -768,6 +771,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
         return summary
 
     review_results: dict[str, TrendReviewResult] = {}
+    review_payloads_by_keyword: dict[str, TrendReviewPayload] = {}
     if settings.AI_REVIEW_ENABLED:
         reservation = reserve_automation_ai_call("trend_detection", trigger)
         summary["ai_calls_remaining"] = reservation.remaining_today
@@ -775,9 +779,12 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             summary["budget_exhausted"] = True
         else:
             review_payloads = await _build_review_payloads(eligible_candidates)
+            review_payloads_by_keyword = {
+                payload.keyword: payload for payload in review_payloads
+            }
             try:
-                review_results = await review_trend_candidates(review_payloads)
-                summary["ai_calls_used"] = 1
+                review_results, request_count = await review_trend_candidates(review_payloads)
+                summary["ai_calls_used"] += request_count
                 summary["ai_reviewed"] = len(review_payloads)
                 (
                     summary["ai_grounding_status"],
@@ -786,6 +793,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
                     summary["ai_grounding_sources"],
                 ) = _summarize_ai_grounding(review_results)
             except AIReviewError as exc:
+                summary["ai_calls_used"] += exc.request_count
                 summary["ai_fallback_details"].append(
                     _build_ai_detail_line(
                         "batch",
@@ -858,6 +866,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
     consumed_existing_ids: set[str] = set()
     confirmed_keywords: list[str] = []
     new_confirmed_keywords: list[str] = []
+    trend_plans: list[dict] = []
 
     for group in confirmed_groups.values():
         group_candidates = group["candidates"]
@@ -868,11 +877,6 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             key=lambda item: float(item.get("score", 0.0)),
         )
         category = representative_candidate.get("category") or DEFAULT_CATEGORY
-        ai_description = _select_ai_description(
-            display_keyword,
-            group_candidates,
-            review_results,
-        )
         search_terms = dedupe_terms(
             [
                 display_keyword,
@@ -945,11 +949,67 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             representative_candidate["score"],
             representative_candidate["acceleration"],
         )
+        trend_plans.append(
+            {
+                "trend_id": trend_id,
+                "display_keyword": display_keyword,
+                "category": category,
+                "status": status,
+                "search_terms": search_terms,
+                "group_candidates": group_candidates,
+                "primary_existing_trend": primary_existing_trend,
+                "representative_candidate": representative_candidate,
+            }
+        )
+
+    descriptions_by_keyword: dict[str, str] = {}
+    if settings.AI_REVIEW_ENABLED and review_results and review_payloads_by_keyword:
+        description_payloads = [
+            TrendDescriptionPayload(
+                keyword=plan["display_keyword"],
+                category=plan["category"],
+                evidence_snippets=_collect_description_snippets(
+                    plan["group_candidates"],
+                    review_payloads_by_keyword,
+                ),
+            )
+            for plan in trend_plans
+            if not (
+                plan["primary_existing_trend"]
+                and plan["primary_existing_trend"].get("description")
+            )
+        ]
+        description_payloads = [
+            payload for payload in description_payloads if payload.evidence_snippets
+        ]
+        if description_payloads:
+            try:
+                descriptions_by_keyword, request_count = await generate_trend_descriptions(
+                    description_payloads
+                )
+                summary["ai_calls_used"] += request_count
+            except AIReviewError as exc:
+                summary["ai_calls_used"] += exc.request_count
+                summary["ai_fallback_details"].append(
+                    _build_ai_detail_line(
+                        "description",
+                        confidence=None,
+                        category=DEFAULT_CATEGORY,
+                        reason=str(exc),
+                    )
+                )
+                logger.warning("AI trend description generation failed: %s", exc)
+
+    for plan in trend_plans:
+        primary_existing_trend = plan["primary_existing_trend"]
+        display_keyword = plan["display_keyword"]
+        category = plan["category"]
+        representative_candidate = plan["representative_candidate"]
         trend_data = {
-            "id": trend_id,
+            "id": plan["trend_id"],
             "name": display_keyword,
             "category": category,
-            "status": status,
+            "status": plan["status"],
             "detected_at": datetime.now(timezone.utc).isoformat(),
             "peak_score": representative_candidate["score"],
             "search_volume_data": _build_search_volume_map(
@@ -976,16 +1036,17 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             if image_url:
                 trend_data["image_url"] = image_url
 
-        if not trend_data["description"] and ai_description:
-            trend_data["description"] = ai_description
+        generated_description = descriptions_by_keyword.get(display_keyword)
+        if not trend_data["description"] and generated_description:
+            trend_data["description"] = generated_description
             summary["generated_descriptions"] += 1
 
         upsert_trend(trend_data)
         summary["stored_trends"] += 1
 
-        stores = await find_stores_nationwide(search_terms)
+        stores = await find_stores_nationwide(plan["search_terms"])
         if stores:
-            store_records = build_store_records(trend_id, stores)
+            store_records = build_store_records(plan["trend_id"], stores)
             insert_stores(store_records)
             summary["stored_stores"] += len(store_records)
 

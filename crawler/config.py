@@ -189,6 +189,26 @@ class Settings:
     AI_REVIEW_TIMEOUT_SECONDS: int = int(
         os.getenv("AI_REVIEW_TIMEOUT_SECONDS", "30")
     )
+    AI_REVIEW_BATCH_SIZE: int = max(
+        1,
+        min(int(os.getenv("AI_REVIEW_BATCH_SIZE", "3")), 3),
+    )
+    AI_DESCRIPTION_BATCH_SIZE: int = max(
+        1,
+        min(
+            int(
+                os.getenv(
+                    "AI_DESCRIPTION_BATCH_SIZE",
+                    os.getenv("AI_REVIEW_BATCH_SIZE", "3"),
+                )
+            ),
+            3,
+        ),
+    )
+    AI_REVIEW_REQUEST_MIN_INTERVAL_SECONDS: float = max(
+        float(os.getenv("AI_REVIEW_REQUEST_MIN_INTERVAL_SECONDS", "13")),
+        0.0,
+    )
     AI_REVIEW_MIN_CONFIDENCE: float = float(
         os.getenv("AI_REVIEW_MIN_CONFIDENCE", "0.7")
     )

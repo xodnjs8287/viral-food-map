@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Iterable
 from urllib.parse import urlparse
 
 import httpx
@@ -50,10 +51,16 @@ _TIMEOUT_ERROR_KEYWORDS = (
 )
 
 _TIMEOUT_RETRY_DELAY_SECONDS = 1.0
+_ai_request_lock = asyncio.Lock()
+_last_ai_request_started_at = 0.0
 
 
 class AIReviewError(RuntimeError):
     """Raised when the AI review service cannot be used safely."""
+
+    def __init__(self, message: str, *, request_count: int = 0):
+        super().__init__(message)
+        self.request_count = request_count
 
 
 @dataclass(slots=True)
@@ -73,6 +80,13 @@ class DiscoveryReviewPayload:
     frequency: int
     food_ratio: float
     category_hint: str
+    evidence_snippets: list[str]
+
+
+@dataclass(slots=True)
+class TrendDescriptionPayload:
+    keyword: str
+    category: str
     evidence_snippets: list[str]
 
 
@@ -103,6 +117,8 @@ class AIReviewGroundingTrace:
 class GeminiTextResponse:
     text: str
     grounding_trace: AIReviewGroundingTrace | None = None
+    request_count: int = 1
+    response_detail: str | None = None
 
 
 @dataclass(slots=True)
@@ -207,6 +223,12 @@ def _normalize_concerns(value: Any) -> list[str]:
     return concerns
 
 
+def _chunk_items(items: list[Any], size: int) -> Iterable[list[Any]]:
+    batch_size = max(size, 1)
+    for index in range(0, len(items), batch_size):
+        yield items[index : index + batch_size]
+
+
 def _get_attr_or_key(value: Any, *names: str) -> Any:
     if value is None:
         return None
@@ -221,6 +243,99 @@ def _get_attr_or_key(value: Any, *names: str) -> Any:
             return getattr(value, name)
 
     return None
+
+
+def _enum_name(value: Any) -> str | None:
+    if value is None:
+        return None
+
+    enum_value = getattr(value, "value", None)
+    if isinstance(enum_value, str) and enum_value:
+        return enum_value
+
+    text = str(value).strip()
+    if not text:
+        return None
+    if "." in text:
+        return text.split(".")[-1]
+    return text
+
+
+def _append_response_detail(message: str, detail: str | None) -> str:
+    if not detail:
+        return message
+    if detail in message:
+        return message
+    return f"{message} ({detail})"
+
+
+def _build_response_detail(
+    response: genai_types.GenerateContentResponse,
+) -> str | None:
+    parts: list[str] = []
+
+    response_id = _normalize_short_text(getattr(response, "response_id", None), max_length=60)
+    if response_id:
+        parts.append(f"response_id={response_id}")
+
+    prompt_feedback = getattr(response, "prompt_feedback", None)
+    if prompt_feedback is not None:
+        block_reason = _enum_name(
+            _get_attr_or_key(prompt_feedback, "block_reason", "blockReason")
+        )
+        block_message = _normalize_short_text(
+            _get_attr_or_key(
+                prompt_feedback,
+                "block_reason_message",
+                "blockReasonMessage",
+            ),
+            max_length=120,
+        )
+        feedback_parts = []
+        if block_reason:
+            feedback_parts.append(f"block_reason={block_reason}")
+        if block_message:
+            feedback_parts.append(f"block_message={block_message}")
+        if feedback_parts:
+            parts.append("prompt_feedback=" + ", ".join(feedback_parts))
+
+    finish_parts: list[str] = []
+    for index, candidate in enumerate((response.candidates or [])[:3]):
+        candidate_parts = []
+        finish_reason = _enum_name(
+            _get_attr_or_key(candidate, "finish_reason", "finishReason")
+        )
+        finish_message = _normalize_short_text(
+            _get_attr_or_key(candidate, "finish_message", "finishMessage"),
+            max_length=120,
+        )
+        if finish_reason:
+            candidate_parts.append(f"finish_reason={finish_reason}")
+        if finish_message:
+            candidate_parts.append(f"finish_message={finish_message}")
+        if candidate_parts:
+            finish_parts.append(f"candidate[{index}] " + ", ".join(candidate_parts))
+
+    if finish_parts:
+        parts.extend(finish_parts)
+
+    return " | ".join(parts) if parts else None
+
+
+async def _wait_for_ai_request_slot() -> None:
+    global _last_ai_request_started_at
+
+    min_interval = settings.AI_REVIEW_REQUEST_MIN_INTERVAL_SECONDS
+    if min_interval <= 0:
+        return
+
+    async with _ai_request_lock:
+        elapsed = time.monotonic() - _last_ai_request_started_at
+        wait_seconds = max(min_interval - elapsed, 0.0)
+        if wait_seconds > 0:
+            logger.info("Delaying AI request by %.2fs to stay within quota", wait_seconds)
+            await asyncio.sleep(wait_seconds)
+        _last_ai_request_started_at = time.monotonic()
 
 
 def _build_grounding_result_kwargs(
@@ -411,7 +526,10 @@ def _extract_response_text(response: genai_types.GenerateContentResponse) -> str
         return response.text
     parts = []
     for candidate in response.candidates or []:
-        for part in candidate.content.parts or []:
+        content = getattr(candidate, "content", None)
+        if content is None:
+            continue
+        for part in content.parts or []:
             if part.text:
                 parts.append(part.text)
     return "\n".join(parts)
@@ -434,13 +552,17 @@ async def _gemini_generate(
     config = genai_types.GenerateContentConfig(
         system_instruction=system_instruction,
         temperature=0.1,
+        candidate_count=1,
         max_output_tokens=max_output_tokens,
+        response_mime_type="application/json",
         http_options=genai_types.HttpOptions(
             timeout=settings.AI_REVIEW_TIMEOUT_SECONDS * 1000,
         ),
     )
     if tools:
         config.tools = tools
+
+    await _wait_for_ai_request_slot()
 
     try:
         response = await client.aio.models.generate_content(
@@ -449,14 +571,20 @@ async def _gemini_generate(
             config=config,
         )
     except Exception as exc:
-        raise AIReviewError(f"Gemini API request failed: {exc}") from exc
+        raise AIReviewError(f"Gemini API request failed: {exc}", request_count=1) from exc
 
     text = _extract_response_text(response)
+    response_detail = _build_response_detail(response)
     if not text:
-        raise AIReviewError("empty Gemini response")
+        raise AIReviewError(
+            _append_response_detail("empty Gemini response", response_detail),
+            request_count=1,
+        )
     return GeminiTextResponse(
         text=text,
         grounding_trace=_extract_grounding_trace(response),
+        request_count=1,
+        response_detail=response_detail,
     )
 
 
@@ -469,19 +597,28 @@ async def _gemini_generate_with_grounding(
     """Call Gemini with Google Search grounding, with automatic fallback."""
     model = settings.AI_REVIEW_MODEL
     use_grounding = settings.AI_REVIEW_GROUNDING_ENABLED
+    request_count = 0
 
     tools: list[genai_types.Tool] | None = None
     if use_grounding:
         tools = [genai_types.Tool(google_search=genai_types.GoogleSearch())]
 
     async def _call(model_name: str, *, grounded: bool) -> GeminiTextResponse:
-        response = await _gemini_generate(
-            model=model_name,
-            system_instruction=system_instruction,
-            user_content=user_content,
-            max_output_tokens=max_output_tokens,
-            tools=tools if grounded else None,
-        )
+        nonlocal request_count
+        try:
+            response = await _gemini_generate(
+                model=model_name,
+                system_instruction=system_instruction,
+                user_content=user_content,
+                max_output_tokens=max_output_tokens,
+                tools=tools if grounded else None,
+            )
+        except AIReviewError as exc:
+            request_count += exc.request_count
+            raise AIReviewError(str(exc), request_count=request_count) from exc
+
+        request_count += response.request_count
+        response.request_count = request_count
         response = _with_grounding_trace_detail(response, grounded=grounded)
         logger.info(
             "Gemini text review completed with model=%s, grounding=%s",
@@ -495,7 +632,7 @@ async def _gemini_generate_with_grounding(
     except AIReviewError as exc:
         original_exc = exc.__cause__ or exc
         if not use_grounding:
-            raise
+            raise AIReviewError(str(exc), request_count=request_count) from exc
 
         fallback_model = settings.AI_REVIEW_GROUNDING_FALLBACK_MODEL
         if _is_timeout_error(original_exc):
@@ -538,10 +675,15 @@ async def _gemini_generate_with_grounding(
                                 "타임아웃되어 구글검색 없이 재시도했습니다."
                             ),
                         )
-                    if not (
-                        _is_grounding_error(fallback_original_exc)
-                        or _is_quota_error(fallback_original_exc)
-                    ):
+                    if _is_quota_error(fallback_original_exc):
+                        raise AIReviewError(
+                            _append_response_detail(
+                                "Gemini quota exceeded on fallback model; skipped extra retry to avoid more requests",
+                                str(fallback_exc),
+                            ),
+                            request_count=request_count,
+                        ) from fallback_exc
+                    if not _is_grounding_error(fallback_original_exc):
                         raise
                     logger.warning(
                         "Grounded fallback request failed on %s, retrying without grounding: %s",
@@ -570,30 +712,61 @@ async def _gemini_generate_with_grounding(
 
         if _is_quota_error(original_exc):
             logger.warning(
-                "Grounded Gemini request hit quota on %s, retrying without grounding: %s",
+                "Grounded Gemini request hit quota on %s, skipping fallback to avoid extra requests: %s",
                 model,
                 original_exc,
             )
-            return _with_grounding_trace_detail(
-                await _call(model, grounded=False),
-                grounded=False,
-                detail=f"{model} grounding 요청이 할당량 제한에 걸려 구글검색 없이 재시도했습니다.",
-            )
+            raise AIReviewError(
+                _append_response_detail(
+                    "Gemini quota exceeded; skipped no-grounding fallback to avoid extra requests",
+                    str(exc),
+                ),
+                request_count=request_count,
+            ) from exc
 
-        raise
+        raise AIReviewError(str(exc), request_count=request_count) from exc
 
 
 async def _request_text_review(
     *,
     system_prompt: str,
     payload: dict[str, Any],
-) -> tuple[dict[str, Any] | list[dict[str, Any]], AIReviewGroundingTrace | None]:
+) -> tuple[dict[str, Any] | list[dict[str, Any]], AIReviewGroundingTrace | None, int]:
     """Text review via Gemini with grounding."""
     response = await _gemini_generate_with_grounding(
         system_instruction=system_prompt,
         user_content=json.dumps(payload, ensure_ascii=False),
     )
-    return _extract_json_blob(response.text), response.grounding_trace
+    try:
+        raw = _extract_json_blob(response.text)
+    except AIReviewError as exc:
+        raise AIReviewError(
+            _append_response_detail(str(exc), response.response_detail),
+            request_count=response.request_count,
+        ) from exc
+    return raw, response.grounding_trace, response.request_count
+
+
+async def _request_json_generation(
+    *,
+    system_prompt: str,
+    payload: dict[str, Any],
+    max_output_tokens: int,
+) -> tuple[dict[str, Any] | list[dict[str, Any]], int]:
+    response = await _gemini_generate(
+        model=settings.AI_REVIEW_MODEL,
+        system_instruction=system_prompt,
+        user_content=json.dumps(payload, ensure_ascii=False),
+        max_output_tokens=max_output_tokens,
+    )
+    try:
+        raw = _extract_json_blob(response.text)
+    except AIReviewError as exc:
+        raise AIReviewError(
+            _append_response_detail(str(exc), response.response_detail),
+            request_count=response.request_count,
+        ) from exc
+    return raw, response.request_count
 
 
 def _extract_results(raw: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -605,6 +778,17 @@ def _extract_results(raw: dict[str, Any] | list[dict[str, Any]]) -> list[dict[st
         return [item for item in results if isinstance(item, dict)]
 
     raise AIReviewError("AI response missing results array")
+
+
+def _extract_description_results(raw: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+
+    results = raw.get("results")
+    if isinstance(results, list):
+        return [item for item in results if isinstance(item, dict)]
+
+    raise AIReviewError("AI response missing description results array")
 
 
 def _fallback_result_map(
@@ -650,11 +834,34 @@ def _coerce_result_map(
     return result_map
 
 
+def _coerce_description_map(
+    raw: dict[str, Any] | list[dict[str, Any]],
+    *,
+    payloads: list[TrendDescriptionPayload],
+) -> dict[str, str]:
+    payload_map = {payload.keyword: payload for payload in payloads}
+    descriptions: dict[str, str] = {}
+
+    for item in _extract_description_results(raw):
+        keyword = clean_display_keyword(item.get("keyword"))
+        payload = payload_map.get(keyword)
+        if payload is None:
+            continue
+        description = _normalize_description(
+            item.get("description"),
+            original_keyword=payload.keyword,
+        )
+        if description:
+            descriptions[payload.keyword] = description
+
+    return descriptions
+
+
 async def review_trend_candidates(
     payloads: list[TrendReviewPayload],
-) -> dict[str, TrendReviewResult]:
+) -> tuple[dict[str, TrendReviewResult], int]:
     if not payloads:
-        return {}
+        return {}, 0
 
     system_prompt = (
         "You are reviewing Korean viral food trend candidates for a store-finding service. "
@@ -667,41 +874,55 @@ async def review_trend_candidates(
         "If multiple candidates refer to the same food using abbreviation, spacing variation, or synonym, "
         "set canonical_keyword so they point to the same normalized expression. "
         "Prefer the most common consumer-facing expression among the provided candidates when deciding a canonical cluster. "
-        "For accepted keywords, also write a short Korean description for end users in 1-2 sentences. "
-        "The description should briefly explain what the food is and why people are looking for it now. "
-        "Keep it factual, concise, and avoid markdown, quotes, hashtags, and fabricated numbers. "
-        "For reject or review verdicts, description can be an empty string. "
+        "Keep reason short and factual. "
         "Category must be one of: 디저트, 음료, 식사, 간식, 기타. "
         "Respond with JSON only using the shape "
-        '{"results":[{"keyword":"...","verdict":"accept|reject|review","confidence":0.0,"category":"...","reason":"...","canonical_keyword":"...","description":"..."}]}.'
+        '{"results":[{"keyword":"...","verdict":"accept|reject|review","confidence":0.0,"category":"...","reason":"...","canonical_keyword":"..."}]}.'
     )
-    raw, grounding_trace = await _request_text_review(
-        system_prompt=system_prompt,
-        payload={
-            "type": "trend_candidates",
-            "candidates": [asdict(payload) for payload in payloads],
-        },
-    )
-    result_map = _coerce_result_map(
-        raw,
-        payloads=payloads,
-        grounding_trace=grounding_trace,
-    )
-    logger.info(
-        "AI trend batch reviewed %s candidates (google_search=%s, queries=%s, sources=%s)",
-        len(payloads),
-        bool(grounding_trace and grounding_trace.used_google_search),
-        len(grounding_trace.web_search_queries) if grounding_trace else 0,
-        len(grounding_trace.grounding_sources) if grounding_trace else 0,
-    )
-    return result_map
+    request_count = 0
+    result_map: dict[str, TrendReviewResult] = {}
+    batches = list(_chunk_items(payloads, settings.AI_REVIEW_BATCH_SIZE))
+
+    for index, batch in enumerate(batches, start=1):
+        try:
+            raw, grounding_trace, batch_request_count = await _request_text_review(
+                system_prompt=system_prompt,
+                payload={
+                    "type": "trend_candidates",
+                    "candidates": [asdict(payload) for payload in batch],
+                },
+            )
+        except AIReviewError as exc:
+            raise AIReviewError(
+                f"trend review batch {index}/{len(batches)} failed: {exc}",
+                request_count=request_count + exc.request_count,
+            ) from exc
+
+        request_count += batch_request_count
+        batch_result_map = _coerce_result_map(
+            raw,
+            payloads=batch,
+            grounding_trace=grounding_trace,
+        )
+        result_map.update(batch_result_map)
+        logger.info(
+            "AI trend batch reviewed %s candidates in batch %s/%s (google_search=%s, queries=%s, sources=%s)",
+            len(batch),
+            index,
+            len(batches),
+            bool(grounding_trace and grounding_trace.used_google_search),
+            len(grounding_trace.web_search_queries) if grounding_trace else 0,
+            len(grounding_trace.grounding_sources) if grounding_trace else 0,
+        )
+
+    return result_map, request_count
 
 
 async def review_discovered_keywords(
     payloads: list[DiscoveryReviewPayload],
-) -> dict[str, TrendReviewResult]:
+) -> tuple[dict[str, TrendReviewResult], int]:
     if not payloads:
-        return {}
+        return {}, 0
 
     system_prompt = (
         "You are reviewing newly discovered Korean food keywords for a monitoring list. "
@@ -712,30 +933,101 @@ async def review_discovered_keywords(
         "If multiple candidates refer to the same food using abbreviation, spacing variation, or synonym, "
         "set canonical_keyword so they point to the same normalized expression. "
         "Prefer the most common consumer-facing expression among the provided candidates when deciding a canonical cluster. "
+        "Keep reason short and factual. "
         "Category must be one of: 디저트, 음료, 식사, 간식, 기타. "
         "Respond with JSON only using the shape "
         '{"results":[{"keyword":"...","verdict":"accept|reject|review","confidence":0.0,"category":"...","reason":"...","canonical_keyword":"..."}]}.'
     )
-    raw, grounding_trace = await _request_text_review(
-        system_prompt=system_prompt,
-        payload={
-            "type": "discovered_keywords",
-            "candidates": [asdict(payload) for payload in payloads],
-        },
+    request_count = 0
+    result_map: dict[str, TrendReviewResult] = {}
+    batches = list(_chunk_items(payloads, settings.AI_REVIEW_BATCH_SIZE))
+
+    for index, batch in enumerate(batches, start=1):
+        try:
+            raw, grounding_trace, batch_request_count = await _request_text_review(
+                system_prompt=system_prompt,
+                payload={
+                    "type": "discovered_keywords",
+                    "candidates": [asdict(payload) for payload in batch],
+                },
+            )
+        except AIReviewError as exc:
+            raise AIReviewError(
+                f"discovery review batch {index}/{len(batches)} failed: {exc}",
+                request_count=request_count + exc.request_count,
+            ) from exc
+
+        request_count += batch_request_count
+        batch_result_map = _coerce_result_map(
+            raw,
+            payloads=batch,
+            grounding_trace=grounding_trace,
+        )
+        result_map.update(batch_result_map)
+        logger.info(
+            "AI discovery batch reviewed %s candidates in batch %s/%s (google_search=%s, queries=%s, sources=%s)",
+            len(batch),
+            index,
+            len(batches),
+            bool(grounding_trace and grounding_trace.used_google_search),
+            len(grounding_trace.web_search_queries) if grounding_trace else 0,
+            len(grounding_trace.grounding_sources) if grounding_trace else 0,
+        )
+
+    return result_map, request_count
+
+
+async def generate_trend_descriptions(
+    payloads: list[TrendDescriptionPayload],
+) -> tuple[dict[str, str], int]:
+    if not payloads:
+        return {}, 0
+
+    system_prompt = (
+        "You are writing short Korean menu descriptions for a local food trend service. "
+        "You will receive multiple confirmed menu keywords. "
+        "For each keyword, write one short factual Korean sentence that explains what the menu is. "
+        "When helpful, mention the texture, flavor, or format people notice. "
+        "Keep each description concise, natural, and free of markdown, quotes, hashtags, store names, and exaggerated claims. "
+        "Respond with JSON only using the shape "
+        '{"results":[{"keyword":"...","description":"..."}]}.'
     )
-    result_map = _coerce_result_map(
-        raw,
-        payloads=payloads,
-        grounding_trace=grounding_trace,
-    )
-    logger.info(
-        "AI discovery batch reviewed %s candidates (google_search=%s, queries=%s, sources=%s)",
-        len(payloads),
-        bool(grounding_trace and grounding_trace.used_google_search),
-        len(grounding_trace.web_search_queries) if grounding_trace else 0,
-        len(grounding_trace.grounding_sources) if grounding_trace else 0,
-    )
-    return result_map
+
+    request_count = 0
+    descriptions: dict[str, str] = {}
+    batches = list(_chunk_items(payloads, settings.AI_DESCRIPTION_BATCH_SIZE))
+
+    for index, batch in enumerate(batches, start=1):
+        try:
+            raw, batch_request_count = await _request_json_generation(
+                system_prompt=system_prompt,
+                payload={
+                    "type": "trend_descriptions",
+                    "items": [asdict(payload) for payload in batch],
+                },
+                max_output_tokens=360,
+            )
+        except AIReviewError as exc:
+            raise AIReviewError(
+                f"description batch {index}/{len(batches)} failed: {exc}",
+                request_count=request_count + exc.request_count,
+            ) from exc
+
+        request_count += batch_request_count
+        descriptions.update(
+            _coerce_description_map(
+                raw,
+                payloads=batch,
+            )
+        )
+        logger.info(
+            "AI description batch generated %s descriptions in batch %s/%s",
+            len(batch),
+            index,
+            len(batches),
+        )
+
+    return descriptions, request_count
 
 
 def _coerce_instagram_image_result(
