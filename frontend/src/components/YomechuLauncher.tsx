@@ -1,6 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
+import { useRef } from "react";
 
 import {
   YOMECHU_CATEGORY_OPTIONS,
@@ -143,6 +144,9 @@ export default function YomechuLauncher({
   onRetryLocation,
   onUsePresetLocation,
 }: YomechuLauncherProps) {
+  const countSectionRef = useRef<HTMLElement | null>(null);
+  const radiusSectionRef = useRef<HTMLElement | null>(null);
+  const categorySectionRef = useRef<HTMLElement | null>(null);
   const canSpin = hasBaseLocation && !isSubmitting;
   const showPresetSection = !hasBaseLocation;
   const statusLabel = getLocationStatusLabel(
@@ -167,14 +171,20 @@ export default function YomechuLauncher({
   );
   const summaryPills = [
     {
+      id: "count",
+      title: "추천 수",
       label: `${selectedCountLabel} 추천`,
       className: "bg-primary/10 text-primary ring-1 ring-primary/15",
     },
     {
+      id: "radius",
+      title: "거리",
       label: `${selectedRadiusLabel} 반경`,
       className: "bg-gray-100 text-gray-700 ring-1 ring-gray-200",
     },
     {
+      id: "category",
+      title: "업종",
       label: selectedCategoryLabel === "전체" ? "전체 업종" : selectedCategoryLabel,
       className: "bg-secondary/15 text-sky-900 ring-1 ring-secondary/30",
     },
@@ -184,6 +194,16 @@ export default function YomechuLauncher({
     !hasBaseLocation &&
     locationStatus !== "unsupported" &&
     locationStatus !== "loading";
+  const scrollToSection = (sectionId: (typeof summaryPills)[number]["id"]) => {
+    const target =
+      sectionId === "count"
+        ? countSectionRef.current
+        : sectionId === "radius"
+          ? radiusSectionRef.current
+          : categorySectionRef.current;
+
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <AnimatePresence initial={false}>
@@ -222,14 +242,22 @@ export default function YomechuLauncher({
                   </span>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   {summaryPills.map((pill) => (
-                    <span
-                      key={pill.label}
-                      className={`rounded-full px-3 py-2 text-sm font-semibold ${pill.className}`}
+                    <button
+                      key={pill.id}
+                      type="button"
+                      onClick={() => scrollToSection(pill.id)}
+                      className={`min-w-0 rounded-2xl px-3 py-2.5 text-center transition-all hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${pill.className}`}
+                      aria-label={`${pill.title} 설정으로 이동`}
                     >
-                      {pill.label}
-                    </span>
+                      <span className="block text-[11px] font-semibold tracking-[0.02em] opacity-70">
+                        {pill.title}
+                      </span>
+                      <span className="mt-1 block truncate text-sm font-semibold">
+                        {pill.label}
+                      </span>
+                    </button>
                   ))}
                 </div>
 
@@ -324,7 +352,10 @@ export default function YomechuLauncher({
                 </div>
 
                 <div className="mt-4 flex flex-col gap-3">
-                  <section className="rounded-2xl border border-primary/10 bg-primary/5 p-3">
+                  <section
+                    ref={countSectionRef}
+                    className="scroll-mt-4 rounded-2xl border border-primary/10 bg-primary/5 p-3"
+                  >
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <p className="text-xs font-semibold text-gray-700">추천 수</p>
                       <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
@@ -350,7 +381,10 @@ export default function YomechuLauncher({
                     </div>
                   </section>
 
-                  <section className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                  <section
+                    ref={radiusSectionRef}
+                    className="scroll-mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3"
+                  >
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <p className="text-xs font-semibold text-gray-700">거리</p>
                       <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 ring-1 ring-gray-200">
@@ -375,7 +409,10 @@ export default function YomechuLauncher({
                     </div>
                   </section>
 
-                  <section className="rounded-2xl border border-secondary/20 bg-secondary/10 p-3">
+                  <section
+                    ref={categorySectionRef}
+                    className="scroll-mt-4 rounded-2xl border border-secondary/20 bg-secondary/10 p-3"
+                  >
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <p className="text-xs font-semibold text-sky-900">업종</p>
                       <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-sky-900 ring-1 ring-secondary/30">
