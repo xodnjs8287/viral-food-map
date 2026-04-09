@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
+from auth import AdminUser, require_admin_user
 from database import list_instagram_feed_runs
 from scheduler.jobs import run_instagram_feed_job
 
@@ -15,7 +16,10 @@ class FeedPublishRequest(BaseModel):
 
 
 @router.post("/feed/publish")
-async def publish_instagram_feed(request: FeedPublishRequest):
+async def publish_instagram_feed(
+    request: FeedPublishRequest,
+    _: AdminUser = Depends(require_admin_user),
+):
     summary = await run_instagram_feed_job(
         trigger="manual",
         dry_run=request.dry_run,

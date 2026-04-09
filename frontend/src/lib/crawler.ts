@@ -63,6 +63,32 @@ function getCrawlerErrorMessage(detail: unknown, fallback: string) {
   return fallback;
 }
 
+async function getCrawlerResponseErrorMessage(
+  response: Response,
+  fallback: string
+) {
+  const errorBody = await response.json().catch(() => ({ detail: fallback }));
+  return getCrawlerErrorMessage(errorBody.detail, fallback);
+}
+
+function getAdminCrawlerHeaders(
+  accessToken: string,
+  contentType?: string
+): Headers {
+  if (!accessToken.trim()) {
+    throw new Error("관리자 로그인 세션이 만료되었습니다. 다시 로그인해 주세요.");
+  }
+
+  const headers = new Headers();
+  headers.set("Authorization", `Bearer ${accessToken}`);
+
+  if (contentType) {
+    headers.set("Content-Type", contentType);
+  }
+
+  return headers;
+}
+
 const CRAWLER_BASE_URL = resolveCrawlerBaseUrl();
 
 export interface TrendDetectionSummary {
@@ -79,9 +105,21 @@ export interface TrendDetectionSummary {
   budget_exhausted?: boolean;
 }
 
-export interface TrendDetectionResponse {
+export interface TrendDetectionJobStatus {
+  state: "idle" | "queued" | "running" | "completed" | "failed";
+  last_trigger: string | null;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  last_summary: TrendDetectionSummary | null;
+  last_error: string | null;
+  running: boolean;
+}
+
+export interface TriggerTrendDetectionResponse {
+  accepted: boolean;
+  status: "queued" | "running";
   message: string;
-  summary: TrendDetectionSummary;
+  job: TrendDetectionJobStatus;
 }
 
 export interface CrawlerHealthResponse {
@@ -93,6 +131,41 @@ export interface CrawlerHealthResponse {
   trend_detection_schedule?: string;
   keyword_discovery_schedule?: string;
   store_update_interval_minutes?: number;
+  instagram_posting_enabled?: boolean;
+  instagram_feed_schedule?: string;
+  instagram_media_bucket?: string;
+}
+
+export interface InstagramPublishedTrend {
+  id?: string;
+  name?: string;
+  status?: string;
+  category?: string;
+  peak_score?: number;
+}
+
+export interface InstagramFeedRunSnapshot {
+  status?: string | null;
+  trend_name_snapshot?: string | null;
+  skip_reason?: string | null;
+}
+
+export interface InstagramPublishSummary {
+  run_date: string;
+  status: "dry_run" | "noop" | "published" | "skipped";
+  reason?: string;
+  skip_reason?: string;
+  candidate_count?: number;
+  published_trend?: InstagramPublishedTrend;
+  final_image_url?: string;
+  used_fallback_image?: boolean;
+  errors?: string[];
+  run?: InstagramFeedRunSnapshot | null;
+}
+
+export interface PublishInstagramFeedResponse {
+  message: string;
+  summary: InstagramPublishSummary;
 }
 
 export const YOMECHU_RADIUS_OPTIONS: YomechuOption<number>[] = [
@@ -144,20 +217,71 @@ export function getCrawlerBaseUrl() {
   return CRAWLER_BASE_URL;
 }
 
-export async function triggerTrendDetection(): Promise<TrendDetectionResponse> {
+export async function triggerTrendDetection(
+  accessToken: string
+): Promise<TriggerTrendDetectionResponse> {
   if (!CRAWLER_BASE_URL) {
     throw new Error("크롤러 API 주소가 설정되지 않았습니다.");
   }
 
   const response = await fetch(`${CRAWLER_BASE_URL}/api/trends/detect`, {
     method: "POST",
+    headers: getAdminCrawlerHeaders(accessToken),
   });
 
   if (!response.ok) {
-    const errorBody = await response
-      .json()
-      .catch(() => ({ detail: "수동 크롤링 실행에 실패했습니다." }));
-    throw new Error(errorBody.detail || "수동 크롤링 실행에 실패했습니다.");
+    throw new Error(
+      await getCrawlerResponseErrorMessage(
+        response,
+        "수동 크롤링 실행에 실패했습니다."
+      )
+    );
+  }
+
+  return response.json();
+}
+
+export async function fetchTrendDetectionStatus(): Promise<TrendDetectionJobStatus> {
+  if (!CRAWLER_BASE_URL) {
+    throw new Error("크롤러 API 주소가 설정되지 않았습니다.");
+  }
+
+  const response = await fetch(`${CRAWLER_BASE_URL}/api/trends/detect/status`);
+
+  if (!response.ok) {
+    throw new Error("크롤링 상태 확인에 실패했습니다.");
+  }
+
+  return response.json();
+}
+
+export async function publishInstagramFeed(
+  accessToken: string,
+  options: {
+    dryRun?: boolean;
+    forceRetry?: boolean;
+  } = {}
+): Promise<PublishInstagramFeedResponse> {
+  if (!CRAWLER_BASE_URL) {
+    throw new Error("크롤러 API 주소가 설정되지 않았습니다.");
+  }
+
+  const response = await fetch(`${CRAWLER_BASE_URL}/api/instagram/feed/publish`, {
+    method: "POST",
+    headers: getAdminCrawlerHeaders(accessToken, "application/json"),
+    body: JSON.stringify({
+      dry_run: options.dryRun ?? false,
+      force_retry: options.forceRetry ?? false,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await getCrawlerResponseErrorMessage(
+        response,
+        "인스타그램 게시 실행에 실패했습니다."
+      )
+    );
   }
 
   return response.json();
@@ -237,11 +361,9 @@ export async function fetchYomechuSpin(payload: {
 
   if (!response.ok) {
     const fallbackMessage = "요메추 추천을 불러오지 못했습니다.";
-    const errorBody = await response
-      .json()
-      .catch(() => ({ detail: fallbackMessage }));
-
-    throw new Error(getCrawlerErrorMessage(errorBody.detail, fallbackMessage));
+    throw new Error(
+      await getCrawlerResponseErrorMessage(response, fallbackMessage)
+    );
   }
 
   return response.json();

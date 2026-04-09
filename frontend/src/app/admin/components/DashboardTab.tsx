@@ -5,8 +5,13 @@ import { supabase } from "@/lib/supabase";
 import TrendBadge from "@/components/TrendBadge";
 import {
   fetchCrawlerHealth,
+  fetchTrendDetectionStatus,
   getCrawlerBaseUrl,
+  publishInstagramFeed,
   triggerTrendDetection,
+  type InstagramPublishSummary,
+  type TrendDetectionJobStatus,
+  type TrendDetectionSummary,
 } from "@/lib/crawler";
 import type { AnalyticsSummary } from "@/lib/types";
 
@@ -33,6 +38,8 @@ interface DashboardStats {
 }
 
 type RequestStatus = "idle" | "loading" | "success" | "error";
+const TREND_DETECTION_POLL_INTERVAL_MS = 2000;
+const TREND_DETECTION_TIMEOUT_MS = 10 * 60 * 1000;
 
 function getPageDisplayName(path: string): string {
   if (path === "/") return "홈";
@@ -43,6 +50,78 @@ function getPageDisplayName(path: string): string {
   return path;
 }
 
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function formatTrendDetectionSummary(summary: TrendDetectionSummary | null) {
+  if (!summary) {
+    return "크롤링이 완료되었습니다.";
+  }
+
+  return `${summary.confirmed}개 트렌드, ${summary.stored_stores}개 판매처를 반영했습니다.`;
+}
+
+function getInstagramTargetName(summary: InstagramPublishSummary) {
+  return summary.published_trend?.name || summary.run?.trend_name_snapshot || null;
+}
+
+function getInstagramRequestStatus(summary: InstagramPublishSummary): RequestStatus {
+  if (summary.status === "published") {
+    return "success";
+  }
+
+  if (summary.status === "noop" && summary.reason === "failed_requires_force_retry") {
+    return "error";
+  }
+
+  if (summary.status === "skipped" && summary.skip_reason === "all_candidates_failed") {
+    return "error";
+  }
+
+  return "success";
+}
+
+function formatInstagramPublishMessage(summary: InstagramPublishSummary) {
+  const trendName = getInstagramTargetName(summary);
+
+  switch (summary.status) {
+    case "published":
+      return trendName
+        ? `${trendName} 게시를 완료했습니다${summary.used_fallback_image ? " (대체 이미지를 사용했습니다)." : "."}`
+        : `인스타그램 게시를 완료했습니다${summary.used_fallback_image ? " (대체 이미지를 사용했습니다)." : "."}`;
+    case "noop":
+      if (summary.reason === "already_completed") {
+        return trendName
+          ? `${trendName} 게시가 이미 완료되어 있습니다.`
+          : "오늘자 인스타그램 게시가 이미 완료되어 있습니다.";
+      }
+      if (summary.reason === "already_running") {
+        return "인스타그램 게시 작업이 이미 실행 중입니다.";
+      }
+      if (summary.reason === "failed_requires_force_retry") {
+        return "이전 인스타그램 게시가 실패 상태입니다. 강제 재시도가 필요합니다.";
+      }
+      return "인스타그램 게시 요청이 이미 처리되었습니다.";
+    case "skipped":
+      if (summary.skip_reason === "no_candidates") {
+        return "게시 가능한 트렌드 후보가 없습니다.";
+      }
+      if (summary.skip_reason === "all_candidates_failed") {
+        return summary.errors?.[0]
+          ? `게시 후보 처리에 실패했습니다: ${summary.errors[0]}`
+          : "게시 후보 처리에 실패했습니다.";
+      }
+      return "인스타그램 게시가 건너뛰어졌습니다.";
+    case "dry_run":
+      return `게시 후보 ${summary.candidate_count ?? 0}건을 확인했습니다.`;
+    default:
+      return "인스타그램 게시 요청을 처리했습니다.";
+  }
+}
+
 export default function DashboardTab() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
@@ -51,6 +130,8 @@ export default function DashboardTab() {
   const [lastDetected, setLastDetected] = useState<string | null>(null);
   const [crawlStatus, setCrawlStatus] = useState<RequestStatus>("idle");
   const [crawlMessage, setCrawlMessage] = useState<string | null>(null);
+  const [instagramStatus, setInstagramStatus] = useState<RequestStatus>("idle");
+  const [instagramMessage, setInstagramMessage] = useState<string | null>(null);
   const [healthStatus, setHealthStatus] = useState<RequestStatus>("idle");
   const [healthMessage, setHealthMessage] = useState<string | null>(null);
   const [lastHealthCheckedAt, setLastHealthCheckedAt] = useState<string | null>(null);
@@ -116,19 +197,55 @@ export default function DashboardTab() {
     void fetchData();
   }, []);
 
+  const getAdminAccessToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const accessToken = session?.access_token;
+
+    if (!accessToken) {
+      throw new Error("관리자 로그인 세션이 만료되었습니다. 다시 로그인해 주세요.");
+    }
+
+    return accessToken;
+  };
+
+  const waitForTrendDetectionCompletion = async (): Promise<TrendDetectionJobStatus> => {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < TREND_DETECTION_TIMEOUT_MS) {
+      const job = await fetchTrendDetectionStatus();
+
+      if (job.state === "completed") {
+        return job;
+      }
+
+      if (job.state === "failed") {
+        throw new Error(job.last_error || "수동 크롤링 실행에 실패했습니다.");
+      }
+
+      await delay(TREND_DETECTION_POLL_INTERVAL_MS);
+    }
+
+    throw new Error("크롤링 완료 확인이 지연되고 있습니다.");
+  };
+
   const triggerCrawl = async () => {
     const apiUrl = getCrawlerBaseUrl();
     if (!apiUrl) return;
 
     setCrawlStatus("loading");
-    setCrawlMessage(null);
+    setCrawlMessage("크롤링 작업을 준비하고 있습니다.");
     try {
-      const result = await triggerTrendDetection();
+      const accessToken = await getAdminAccessToken();
+      const result = await triggerTrendDetection(accessToken);
+      setCrawlMessage(
+        result.accepted
+          ? "크롤링을 시작했습니다. 완료 여부를 확인하고 있습니다."
+          : "이미 실행 중인 크롤링을 확인하고 있습니다."
+      );
+      const job = await waitForTrendDetectionCompletion();
       await fetchData();
       setCrawlStatus("success");
-      setCrawlMessage(
-        `${result.summary.confirmed}개 트렌드, ${result.summary.stored_stores}개 판매처를 반영했습니다.`
-      );
+      setCrawlMessage(formatTrendDetectionSummary(job.last_summary));
       setTimeout(() => setCrawlStatus("idle"), 3000);
     } catch (error) {
       setCrawlStatus("error");
@@ -136,6 +253,28 @@ export default function DashboardTab() {
         error instanceof Error ? error.message : "수동 크롤링 실행에 실패했습니다."
       );
       setTimeout(() => setCrawlStatus("idle"), 5000);
+    }
+  };
+
+  const triggerInstagramPost = async () => {
+    const apiUrl = getCrawlerBaseUrl();
+    if (!apiUrl) return;
+
+    setInstagramStatus("loading");
+    setInstagramMessage("인스타그램 게시를 실행하고 있습니다.");
+    try {
+      const accessToken = await getAdminAccessToken();
+      const result = await publishInstagramFeed(accessToken);
+      const nextStatus = getInstagramRequestStatus(result.summary);
+      setInstagramStatus(nextStatus);
+      setInstagramMessage(formatInstagramPublishMessage(result.summary));
+      setTimeout(() => setInstagramStatus("idle"), nextStatus === "error" ? 5000 : 3000);
+    } catch (error) {
+      setInstagramStatus("error");
+      setInstagramMessage(
+        error instanceof Error ? error.message : "인스타그램 게시 실행에 실패했습니다."
+      );
+      setTimeout(() => setInstagramStatus("idle"), 5000);
     }
   };
 
@@ -423,7 +562,7 @@ export default function DashboardTab() {
 
       {/* 크롤링 트리거 */}
       <div className="bg-white rounded-xl p-4 border border-gray-100">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="font-semibold text-gray-900 text-sm">수동 크롤링</h3>
             <p className="text-xs text-gray-400 mt-0.5">
@@ -508,9 +647,54 @@ export default function DashboardTab() {
                   : !apiUrl
                     ? "API URL 미설정"
                     : "크롤링 실행"}
-          </button>
+            </button>
+          </div>
         </div>
       </div>
+
+      <div className="bg-white rounded-xl p-4 border border-gray-100">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-900 text-sm">인스타그램 수동 게시</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              오늘 게시 후보 중 1건을 인스타그램 피드에 바로 게시합니다
+            </p>
+            {instagramMessage && (
+              <p
+                className={`text-xs mt-2 ${
+                  instagramStatus === "error"
+                    ? "text-red-500"
+                    : instagramStatus === "success"
+                      ? "text-green-600"
+                      : "text-gray-500"
+                }`}
+              >
+                {instagramMessage}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={triggerInstagramPost}
+            disabled={!apiUrl || instagramStatus === "loading"}
+            className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 ${
+              instagramStatus === "success"
+                ? "bg-green-500 text-white"
+                : instagramStatus === "error"
+                  ? "bg-red-500 text-white"
+                  : "bg-primary text-white hover:bg-purple-600"
+            }`}
+          >
+            {instagramStatus === "loading"
+              ? "게시 중..."
+              : instagramStatus === "success"
+                ? "완료!"
+                : instagramStatus === "error"
+                  ? "실패"
+                  : !apiUrl
+                    ? "API URL 미설정"
+                    : "인스타 게시"}
+          </button>
+        </div>
       </div>
 
       {/* 최근 트렌드 */}

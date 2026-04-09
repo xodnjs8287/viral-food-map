@@ -1,5 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
+
+from auth import AdminUser, require_admin_user
 from database import get_client
 from scheduler.jobs import (
     get_trend_detection_status,
@@ -49,7 +51,7 @@ async def get_trend(trend_id: str):
 
 
 @router.post("/detect")
-async def trigger_detection():
+async def trigger_detection(_: AdminUser = Depends(require_admin_user)):
     """수동 트렌드 탐지 트리거"""
     result = queue_trend_detection_job(trigger="manual")
     status_code = 202 if result["accepted"] else 200
