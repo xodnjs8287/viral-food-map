@@ -65,12 +65,17 @@ export default function KakaoMap({
     Map<string, { markerOverlay: kakao.maps.CustomOverlay; infoOverlay: kakao.maps.CustomOverlay }>
   >(new Map());
   const openOverlayRef = useRef<kakao.maps.CustomOverlay | null>(null);
+  const selectedStoreIdRef = useRef(selectedStoreId);
   const currentLocationOverlayRef = useRef<kakao.maps.CustomOverlay | null>(null);
   const onBoundsChangeRef = useRef(onBoundsChange);
 
   useEffect(() => {
     onBoundsChangeRef.current = onBoundsChange;
   }, [onBoundsChange]);
+
+  useEffect(() => {
+    selectedStoreIdRef.current = selectedStoreId;
+  }, [selectedStoreId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -252,6 +257,8 @@ export default function KakaoMap({
       const infoOverlay = new kakao.maps.CustomOverlay({
         content: overlayContent,
         position,
+        xAnchor: 0.5,
+        yAnchor: 1,
         zIndex: 20,
       });
 
@@ -336,6 +343,16 @@ export default function KakaoMap({
 
     renderClusters();
     kakao.maps.event.addListener(map, "idle", renderClusters);
+
+    // stores 재생성 후 선택된 store의 툴팁 복원
+    const currentSelected = selectedStoreIdRef.current;
+    if (currentSelected) {
+      const entry = newMarkerMap.get(currentSelected);
+      if (entry) {
+        entry.infoOverlay.setMap(map);
+        openOverlayRef.current = entry.infoOverlay;
+      }
+    }
 
     if (autoFitBounds) {
       if (stores.length === 1) {
