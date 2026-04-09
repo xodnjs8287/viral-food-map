@@ -119,8 +119,8 @@ html.native-app {
 /* CustomOverlay 기반 말풍선 */
 .kakao-store-overlay {
   position: relative;
-  /* 핀 높이만큼 아래 여백 → 핀 위에 표시 */
   margin-bottom: 28px;
+  margin-right: 15px;
 }
 
 .kakao-store-overlay__content {
