@@ -20,6 +20,7 @@ from ai_reviewer import (
     review_instagram_post_image,
 )
 from config import settings
+from notifications import send_discord_message
 from database import (
     create_instagram_feed_run,
     get_client,
@@ -408,6 +409,7 @@ async def _create_media_container(image_url: str, caption: str) -> tuple[str, st
                         "Instagram Graph host %s rejected the access token while creating a media container",
                         base_url,
                     )
+                    await send_discord_message(f"[⚠️ 인스타그램] Graph API 인증 거부 (host: {base_url})")
                     continue
                 raise
 
@@ -664,6 +666,7 @@ async def publish_daily_instagram_feed(
                     error_message,
                 )
                 errors.append(f"{candidate.get('name')}: {error_message}")
+                await send_discord_message(f"[⚠️ 인스타그램 발행 실패] {candidate.get('name')}: {error_message}")
                 if object_path:
                     _delete_instagram_media(object_path)
                 if _is_graph_auth_error(exc):
@@ -677,6 +680,7 @@ async def publish_daily_instagram_feed(
                     exc,
                 )
                 errors.append(f"{candidate.get('name')}: {exc}")
+                await send_discord_message(f"[⚠️ 인스타그램 발행 실패] {candidate.get('name')}: {exc}")
                 if object_path:
                     _delete_instagram_media(object_path)
                 continue

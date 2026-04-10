@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from config import settings
+from notifications import send_discord_message
 
 logger = logging.getLogger(__name__)
 
@@ -197,9 +198,11 @@ async def collect_youtube_lead_videos() -> list[YouTubeLeadVideo]:
             videos = await _load_video_details(client, video_ids=deduped_ids)
     except httpx.HTTPStatusError as exc:
         logger.warning("YouTube discovery request failed with status %s", exc.response.status_code)
+        await send_discord_message(f"[⚠️ YouTube 실패] 요청 오류 (status {exc.response.status_code})")
         return []
     except Exception as exc:
         logger.warning("YouTube discovery failed: %s", exc)
+        await send_discord_message(f"[⚠️ YouTube 실패] {exc}")
         return []
 
     query_lookup = {

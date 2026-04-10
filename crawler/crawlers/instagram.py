@@ -3,6 +3,8 @@ import re
 import random
 import logging
 
+from notifications import send_discord_message
+
 logger = logging.getLogger(__name__)
 
 USER_AGENTS = [
@@ -27,6 +29,7 @@ async def get_hashtag_post_count(hashtag: str) -> int | None:
 
             if resp.status_code != 200:
                 logger.warning(f"인스타그램 접근 차단 (status={resp.status_code})")
+                await send_discord_message(f"[⚠️ 인스타그램] 접근 차단 (status={resp.status_code})")
                 return None
 
             # meta 태그에서 게시물 수 추출

@@ -18,6 +18,7 @@ from automation_budget import (
     get_automation_ai_budget_snapshot,
     reserve_automation_ai_call,
 )
+from notifications import send_discord_message
 from crawlers.youtube_data import collect_youtube_lead_videos
 from config import settings
 from database import get_all_keywords, get_keyword_aliases, insert_keywords, upsert_keyword_aliases
@@ -655,6 +656,7 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
                     )
                 )
                 logger.warning("AI discovery batch review failed: %s", exc)
+                await send_discord_message(f"[⚠️ AI 검토 실패] 키워드 발견 배치 리뷰 실패 (모델: {settings.AI_REVIEW_MODEL}): {exc}")
 
     grouped_candidates: dict[str, dict] = {}
     for candidate in candidates:

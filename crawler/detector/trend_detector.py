@@ -18,6 +18,7 @@ from automation_budget import (
     get_automation_ai_budget_snapshot,
     reserve_automation_ai_call,
 )
+from notifications import send_discord_message
 from config import settings
 from crawlers.image_finder import find_food_image
 from crawlers.instagram import get_hashtag_post_count
@@ -845,6 +846,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
                     )
                 )
                 logger.warning("AI trend batch review failed: %s", exc)
+                await send_discord_message(f"[⚠️ AI 검토 실패] 트렌드 배치 리뷰 실패 (모델: {settings.AI_REVIEW_MODEL}): {exc}")
 
     confirmed_groups: dict[str, dict] = {}
     alias_rows_to_upsert: list[dict] = []
@@ -1043,6 +1045,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
                     )
                 )
                 logger.warning("AI trend description generation failed: %s", exc)
+                await send_discord_message(f"[⚠️ AI 검토 실패] 트렌드 설명 생성 실패 (모델: {settings.AI_REVIEW_MODEL}): {exc}")
 
     for plan in trend_plans:
         primary_existing_trend = plan["primary_existing_trend"]
