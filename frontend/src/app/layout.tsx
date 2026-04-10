@@ -52,7 +52,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const structuredData = JSON.stringify([
+  const structuredData = [
     {
       "@context": "https://schema.org",
       "@type": "Organization",
@@ -69,7 +69,7 @@ export default function RootLayout({
       description: SITE_DESCRIPTION,
       alternateName: SITE_TITLE,
     },
-  ]);
+  ];
 
   return (
     <html lang="ko">
@@ -78,10 +78,13 @@ export default function RootLayout({
           name="naver-site-verification"
           content={NAVER_SITE_VERIFICATION}
         />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: structuredData }}
-        />
+        {structuredData.map((item) => (
+          <script
+            key={item["@type"]}
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(item) }}
+          />
+        ))}
       </head>
       <body className="min-h-screen bg-[#FAFAFA]">
         {ADSENSE_CLIENT && (
