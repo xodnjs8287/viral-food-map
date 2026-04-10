@@ -57,3 +57,10 @@ CREATE POLICY "Admins can insert trend reviews"
 ALTER TABLE public.trends
   ADD COLUMN IF NOT EXISTS ai_consecutive_accepts integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS ai_consecutive_rejects integer NOT NULL DEFAULT 0;
+
+-- Phase 3: status 체크 제약에 watchlist 추가
+ALTER TABLE public.trends
+  DROP CONSTRAINT IF EXISTS trends_status_check;
+ALTER TABLE public.trends
+  ADD CONSTRAINT trends_status_check
+  CHECK (status IN ('watchlist', 'rising', 'active', 'inactive'));
