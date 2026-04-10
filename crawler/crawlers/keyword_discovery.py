@@ -116,6 +116,7 @@ async def discover_new_keywords(existing_keywords: set[str]) -> list[dict]:
                 "keyword": keyword,
                 "category": category,
                 "is_active": True,
+                "source": "discovered",
                 "baseline_volume": 0,
             })
             logger.info(f"신규 키워드 발견: '{keyword}' (카테고리: {category}, 등장: {count}회)")

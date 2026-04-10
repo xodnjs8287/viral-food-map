@@ -98,6 +98,7 @@ export interface TrendDetectionSummary {
   stored_trends: number;
   stored_stores: number;
   confirmed_keywords: string[];
+  deactivated_keywords?: string[];
   ai_calls_used?: number;
   ai_calls_remaining?: number;
   ai_reviews_queued?: number;

@@ -61,6 +61,7 @@ TREND_LABELS = {
     "stored_stores": "저장 판매처",
     "confirmed_keywords": "확정 키워드",
     "deactivated_trends": "비활성 트렌드",
+    "deactivated_keywords": "휴면 키워드",
     "watchlist_count": "관찰 목록",
     "promoted_from_watchlist": "관찰→활성 승격",
     "ai_reviewed": "AI 검토 후보",

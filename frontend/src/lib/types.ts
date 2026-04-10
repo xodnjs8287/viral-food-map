@@ -50,7 +50,9 @@ export interface Keyword {
   keyword: string;
   category: string;
   is_active: boolean;
+  source?: "manual" | "discovered";
   last_checked: string | null;
+  last_confirmed_at?: string | null;
   baseline_volume: number;
 }
 

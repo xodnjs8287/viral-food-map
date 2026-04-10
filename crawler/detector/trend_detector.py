@@ -30,6 +30,7 @@ from crawlers.naver_search import (
 )
 from crawlers.store_finder import find_stores_nationwide
 from database import (
+    deactivate_keywords,
     delete_stores_by_trend_id,
     get_ai_review_latest_statuses,
     get_active_trends,
@@ -39,6 +40,8 @@ from database import (
     get_trends_by_names,
     insert_stores,
     insert_trend_review,
+    mark_keywords_checked,
+    mark_keywords_confirmed,
     update_trend_status,
     update_trend_verdict_counts,
     upsert_ai_review_queue_entry,
@@ -358,6 +361,7 @@ def _build_summary() -> dict:
         "confirmed_keywords": [],
         "new_confirmed_keywords": [],
         "deactivated_trends": [],
+        "deactivated_keywords": [],
         "watchlist_count": 0,
         "promoted_from_watchlist": [],
         "ai_reviewed": 0,
@@ -459,6 +463,98 @@ def _deactivate_stale_trends(confirmed_keywords: list[str]) -> list[str]:
         deactivated_trends.append(keyword)
 
     return deactivated_trends
+
+
+def _collect_confirmed_db_keywords(
+    db_keywords: list[dict],
+    *,
+    confirmed_keywords: list[str],
+    alias_lookup: dict[str, str],
+) -> list[str]:
+    confirmed_keys = {
+        normalize_keyword_text(keyword)
+        for keyword in confirmed_keywords
+        if clean_display_keyword(keyword)
+    }
+    if not confirmed_keys:
+        return []
+
+    matched_keywords: list[str] = []
+    for item in db_keywords:
+        raw_keyword = clean_display_keyword(item.get("keyword"))
+        if not raw_keyword:
+            continue
+
+        canonical_keyword, _ = resolve_keyword_alias(raw_keyword, alias_lookup)
+        if normalize_keyword_text(canonical_keyword) in confirmed_keys:
+            matched_keywords.append(raw_keyword)
+
+    return dedupe_terms(matched_keywords)
+
+
+def _deactivate_stale_discovered_keywords(
+    db_keywords: list[dict],
+    *,
+    confirmed_keywords: list[str],
+    alias_lookup: dict[str, str],
+) -> list[str]:
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        hours=settings.KEYWORD_DISCOVERED_DORMANCY_HOURS
+    )
+    confirmed_keys = {
+        normalize_keyword_text(keyword)
+        for keyword in confirmed_keywords
+        if clean_display_keyword(keyword)
+    }
+    stale_keywords: list[str] = []
+
+    for item in db_keywords:
+        raw_keyword = clean_display_keyword(item.get("keyword"))
+        if not raw_keyword or not item.get("is_active"):
+            continue
+        if (item.get("source") or "manual") != "discovered":
+            continue
+
+        canonical_keyword, _ = resolve_keyword_alias(raw_keyword, alias_lookup)
+        if normalize_keyword_text(canonical_keyword) in confirmed_keys:
+            continue
+
+        reference_at = (
+            _parse_detected_at(item.get("last_confirmed_at"))
+            or _parse_detected_at(item.get("created_at"))
+        )
+        if reference_at and reference_at > cutoff:
+            continue
+
+        stale_keywords.append(raw_keyword)
+
+    stale_keywords = dedupe_terms(stale_keywords)
+    if stale_keywords:
+        deactivate_keywords(stale_keywords)
+    return stale_keywords
+
+
+def _finalize_keyword_lifecycle(
+    summary: dict,
+    *,
+    db_keywords: list[dict],
+    alias_lookup: dict[str, str],
+    confirmed_keywords: list[str],
+) -> dict:
+    confirmed_db_keywords = _collect_confirmed_db_keywords(
+        db_keywords,
+        confirmed_keywords=confirmed_keywords,
+        alias_lookup=alias_lookup,
+    )
+    if confirmed_db_keywords:
+        mark_keywords_confirmed(confirmed_db_keywords)
+
+    summary["deactivated_keywords"] = _deactivate_stale_discovered_keywords(
+        db_keywords,
+        confirmed_keywords=confirmed_keywords,
+        alias_lookup=alias_lookup,
+    )
+    return summary
 
 
 def _deactivate_invalid_active_trends(active_trends: list[dict]) -> list[str]:
@@ -705,6 +801,7 @@ async def _build_review_payloads(candidates: list[dict]) -> list[TrendReviewPayl
 async def detect_trends(trigger: str = "scheduler") -> dict:
     logger.info("=== trend detection started (%s) ===", trigger)
 
+    run_started_at = datetime.now(timezone.utc)
     summary = _build_summary()
     seen_canonicalizations: set[str] = set()
     alias_rows = get_keyword_aliases()
@@ -735,9 +832,18 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             invalid_active_trends,
             _deactivate_stale_trends([]),
         )
-        return summary
+        return _finalize_keyword_lifecycle(
+            summary,
+            db_keywords=db_keywords,
+            alias_lookup=alias_lookup,
+            confirmed_keywords=[],
+        )
 
     trend_insights = await get_search_trend_insights(keywords)
+    mark_keywords_checked(
+        [item.get("keyword", "") for item in db_keywords],
+        checked_at=run_started_at.isoformat(),
+    )
     search_data = trend_insights["series"]
     popularity_scores = trend_insights["popularity_scores"]
     popularity_ranks = trend_insights["popularity_ranks"]
@@ -772,7 +878,12 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             invalid_active_trends,
             _deactivate_stale_trends([]),
         )
-        return summary
+        return _finalize_keyword_lifecycle(
+            summary,
+            db_keywords=db_keywords,
+            alias_lookup=alias_lookup,
+            confirmed_keywords=[],
+        )
 
     novelty_lookback_days = max(
         settings.TREND_NOVELTY_LOOKBACK_DAYS,
@@ -897,7 +1008,12 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             _deactivate_rejected_active_trends(rejected_keywords),
             _deactivate_stale_trends([]),
         )
-        return summary
+        return _finalize_keyword_lifecycle(
+            summary,
+            db_keywords=db_keywords,
+            alias_lookup=alias_lookup,
+            confirmed_keywords=[],
+        )
 
     review_results: dict[str, TrendReviewResult] = {}
     review_payloads_by_keyword: dict[str, TrendReviewPayload] = {}
@@ -1097,7 +1213,12 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             _deactivate_rejected_active_trends(rejected_keywords),
             _deactivate_stale_trends([]),
         )
-        return summary
+        return _finalize_keyword_lifecycle(
+            summary,
+            db_keywords=db_keywords,
+            alias_lookup=alias_lookup,
+            confirmed_keywords=[],
+        )
 
     consumed_existing_ids: set[str] = set()
     confirmed_keywords: list[str] = []
@@ -1329,6 +1450,12 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
         invalid_active_trends,
         _deactivate_rejected_active_trends(rejected_keywords),
         _deactivate_stale_trends(deduped_confirmed_keywords),
+    )
+    _finalize_keyword_lifecycle(
+        summary,
+        db_keywords=db_keywords,
+        alias_lookup=alias_lookup,
+        confirmed_keywords=deduped_confirmed_keywords,
     )
 
     logger.info(

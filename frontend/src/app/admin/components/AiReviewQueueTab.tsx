@@ -248,11 +248,21 @@ export default function AiReviewQueueTab() {
   };
 
   const applyKeyword = async (row: QueueRow) => {
+    const existingKeyword = await supabase
+      .from("keywords")
+      .select("source")
+      .eq("keyword", row.candidate_name)
+      .maybeSingle();
+    if (existingKeyword.error) {
+      throw existingKeyword.error;
+    }
+
     const { error } = await supabase.from("keywords").upsert(
       {
         keyword: row.candidate_name,
         category: resolveKeywordCategory(row),
         is_active: true,
+        source: existingKeyword.data?.source === "manual" ? "manual" : "discovered",
         baseline_volume: 0,
       },
       {

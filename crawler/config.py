@@ -156,6 +156,9 @@ class Settings:
     DISCOVERY_MAX_NEW_KEYWORDS: int = int(
         os.getenv("DISCOVERY_MAX_NEW_KEYWORDS", "10")
     )
+    KEYWORD_DISCOVERED_DORMANCY_HOURS: int = int(
+        os.getenv("KEYWORD_DISCOVERED_DORMANCY_HOURS", "336")
+    )
     AI_AUTOMATION_DAILY_LIMIT: int = int(
         os.getenv("AI_AUTOMATION_DAILY_LIMIT", "20")
     )

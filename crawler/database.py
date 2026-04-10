@@ -170,6 +170,99 @@ def insert_keywords(keywords: list[dict]):
 upsert_keywords = insert_keywords
 
 
+def _prepare_keyword_names(keywords: list[str]) -> list[str]:
+    return sorted(
+        {
+            str(keyword or "").strip()
+            for keyword in keywords
+            if str(keyword or "").strip()
+        }
+    )
+
+
+def mark_keywords_checked(
+    keywords: list[str],
+    *,
+    checked_at: str | None = None,
+):
+    keyword_names = _prepare_keyword_names(keywords)
+    if not keyword_names:
+        return None
+
+    payload = {
+        "last_checked": checked_at or datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        return (
+            get_client()
+            .table("keywords")
+            .update(payload)
+            .in_("keyword", keyword_names)
+            .execute()
+        )
+    except Exception as exc:
+        _warn_once(
+            "keywords_mark_checked",
+            "keywords last_checked update unavailable",
+            exc,
+        )
+        return None
+
+
+def mark_keywords_confirmed(
+    keywords: list[str],
+    *,
+    confirmed_at: str | None = None,
+):
+    keyword_names = _prepare_keyword_names(keywords)
+    if not keyword_names:
+        return None
+
+    timestamp = confirmed_at or datetime.now(timezone.utc).isoformat()
+    payload = {
+        "last_checked": timestamp,
+        "last_confirmed_at": timestamp,
+        "is_active": True,
+    }
+    try:
+        return (
+            get_client()
+            .table("keywords")
+            .update(payload)
+            .in_("keyword", keyword_names)
+            .execute()
+        )
+    except Exception as exc:
+        _warn_once(
+            "keywords_mark_confirmed",
+            "keywords confirmation update unavailable",
+            exc,
+        )
+        return None
+
+
+def deactivate_keywords(keywords: list[str]):
+    keyword_names = _prepare_keyword_names(keywords)
+    if not keyword_names:
+        return None
+
+    try:
+        return (
+            get_client()
+            .table("keywords")
+            .update({"is_active": False})
+            .in_("keyword", keyword_names)
+            .execute()
+        )
+    except Exception as exc:
+        _warn_once(
+            "keywords_deactivate",
+            "keywords deactivation unavailable",
+            exc,
+        )
+        return None
+
+
 def update_trend_status(trend_id: str, status: str):
     return (
         get_client()

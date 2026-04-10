@@ -72,6 +72,7 @@ export default function KeywordsTab() {
       keyword: trimmed,
       category: newCategory,
       is_active: true,
+      source: "manual",
       baseline_volume: 0,
     });
 

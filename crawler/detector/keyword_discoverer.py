@@ -914,6 +914,7 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
                 "keyword": display_keyword,
                 "category": representative_candidate.get("category") or DEFAULT_CATEGORY,
                 "is_active": True,
+                "source": "discovered",
                 "baseline_volume": 0,
             }
         )
