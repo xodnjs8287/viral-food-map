@@ -50,6 +50,14 @@ _TIMEOUT_ERROR_KEYWORDS = (
     "timed out",
 )
 
+_UNAVAILABLE_ERROR_KEYWORDS = (
+    "503",
+    "unavailable",
+    "high demand",
+    "overloaded",
+)
+
+_UNAVAILABLE_RETRY_DELAY_SECONDS = 30.0
 _TIMEOUT_RETRY_DELAY_SECONDS = 1.0
 _ai_request_lock = asyncio.Lock()
 _last_ai_request_started_at = 0.0
@@ -515,6 +523,11 @@ def _has_error_keyword(exc: Exception, keywords: tuple[str, ...]) -> bool:
     )
 
 
+def _is_unavailable_error(exc: Exception) -> bool:
+    """Return True if the exception looks like a 503 UNAVAILABLE / high demand error."""
+    return _has_error_keyword(exc, _UNAVAILABLE_ERROR_KEYWORDS)
+
+
 def _is_timeout_error(exc: Exception) -> bool:
     """Return True if the exception looks like a timeout/deadline issue."""
     return any(
@@ -578,7 +591,27 @@ async def _gemini_generate(
             config=config,
         )
     except Exception as exc:
-        raise AIReviewError(f"Gemini API request failed: {exc}", request_count=1) from exc
+        if _is_unavailable_error(exc):
+            logger.warning(
+                "Gemini 503 UNAVAILABLE on %s, retrying once after %.0fs: %s",
+                model,
+                _UNAVAILABLE_RETRY_DELAY_SECONDS,
+                exc,
+            )
+            await asyncio.sleep(_UNAVAILABLE_RETRY_DELAY_SECONDS)
+            try:
+                response = await client.aio.models.generate_content(
+                    model=model,
+                    contents=user_content,
+                    config=config,
+                )
+            except Exception as retry_exc:
+                raise AIReviewError(
+                    f"Gemini API request failed after 503 retry: {retry_exc}",
+                    request_count=2,
+                ) from retry_exc
+        else:
+            raise AIReviewError(f"Gemini API request failed: {exc}", request_count=1) from exc
 
     text = _extract_response_text(response)
     response_detail = _build_response_detail(response)
