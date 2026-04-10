@@ -126,12 +126,18 @@ class Settings:
     TREND_GENERIC_MIN_LIFT_PCT: float = float(
         os.getenv("TREND_GENERIC_MIN_LIFT_PCT", "20")
     )
+    TREND_RANK_ONLY_MIN_LIFT_PCT: float = float(
+        os.getenv("TREND_RANK_ONLY_MIN_LIFT_PCT", "20")
+    )
     TREND_GENERIC_MIN_RECENT_BLOG_HITS: int = int(
         os.getenv("TREND_GENERIC_MIN_RECENT_BLOG_HITS", "6")
     )
     TREND_GENERIC_REVIEW_KEYWORDS: list[str] = _env_csv_strings(
         "TREND_GENERIC_REVIEW_KEYWORDS",
-        "마라탕,하이볼,호떡,츄러스,탕후루,마카롱,흑당버블티",
+        (
+            "마라탕,마라샹궈,하이볼,호떡,츄러스,탕후루,마카롱,"
+            "흑당버블티,약과,장인약과,우삼겹덮밥,엽떡"
+        ),
     )
     ACTIVE_TREND_TTL_HOURS: int = int(os.getenv("ACTIVE_TREND_TTL_HOURS", "24"))
     CRAWL_INTERVAL_MINUTES: int = int(os.getenv("CRAWL_INTERVAL_MINUTES", "30"))

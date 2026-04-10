@@ -307,6 +307,7 @@ def _build_summary() -> dict:
         "canonicalized_keywords": [],
         "budget_exhausted": False,
         "skipped_reference_keywords": [],
+        "filtered_rank_only_keywords": [],
         "filtered_stale_keywords": [],
         "filtered_generic_keywords": [],
     }
@@ -406,6 +407,30 @@ def _deactivate_invalid_active_trends(active_trends: list[dict]) -> list[str]:
         deactivated_trends.append(keyword)
 
     return deactivated_trends
+
+
+def _deactivate_rejected_active_trends(rejected_keywords: list[str]) -> list[str]:
+    rejected_keys = {
+        normalize_keyword_text(keyword)
+        for keyword in rejected_keywords
+        if clean_display_keyword(keyword)
+    }
+    if not rejected_keys:
+        return []
+
+    deactivated_trends: list[str] = []
+    for trend in get_active_trends() or []:
+        trend_id = trend.get("id")
+        keyword = clean_display_keyword(trend.get("name"))
+        if not trend_id or not keyword:
+            continue
+        if normalize_keyword_text(keyword) not in rejected_keys:
+            continue
+
+        update_trend_status(trend_id, "inactive")
+        deactivated_trends.append(keyword)
+
+    return dedupe_terms(deactivated_trends)
 
 
 def _merge_deactivated_trends(*trend_groups: list[str]) -> list[str]:
@@ -693,6 +718,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
         days=novelty_lookback_days,
     )
     novelty_search_data = novelty_insights["series"]
+    rejected_keywords: list[str] = []
 
     candidate_existing_trends = {
         trend["name"]: trend
@@ -731,6 +757,20 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             and blog_insights.recent_ratio < settings.TREND_BLOG_FRESHNESS_MIN_RATIO
         ):
             summary["filtered_stale_keywords"].append(keyword)
+            rejected_keywords.append(keyword)
+            continue
+
+        if (
+            candidate.get("rank") is not None
+            and candidate["rank"] <= settings.TREND_TOP_RANK_CANDIDATE_MAX
+            and candidate["acceleration"] < settings.TREND_THRESHOLD
+            and (
+                novelty_lift is None
+                or novelty_lift < settings.TREND_RANK_ONLY_MIN_LIFT_PCT
+            )
+        ):
+            summary["filtered_rank_only_keywords"].append(keyword)
+            rejected_keywords.append(keyword)
             continue
 
         if requires_trend_revalidation(keyword):
@@ -740,6 +780,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
                 or blog_insights.recent_count < settings.TREND_GENERIC_MIN_RECENT_BLOG_HITS
             ):
                 summary["filtered_generic_keywords"].append(keyword)
+                rejected_keywords.append(keyword)
                 continue
 
         score = score_rank(candidate.get("rank"))
@@ -766,6 +807,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
     if not eligible_candidates:
         summary["deactivated_trends"] = _merge_deactivated_trends(
             invalid_active_trends,
+            _deactivate_rejected_active_trends(rejected_keywords),
             _deactivate_stale_trends([]),
         )
         return summary
@@ -835,6 +877,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
                         grounding_sources=review.grounding_sources,
                     )
                 )
+                rejected_keywords.append(keyword)
                 continue
 
             summary["ai_accepted"] += 1
@@ -859,6 +902,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
     if not confirmed_groups:
         summary["deactivated_trends"] = _merge_deactivated_trends(
             invalid_active_trends,
+            _deactivate_rejected_active_trends(rejected_keywords),
             _deactivate_stale_trends([]),
         )
         return summary
@@ -1058,6 +1102,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
     summary["new_confirmed_keywords"] = deduped_new_confirmed_keywords
     summary["deactivated_trends"] = _merge_deactivated_trends(
         invalid_active_trends,
+        _deactivate_rejected_active_trends(rejected_keywords),
         _deactivate_stale_trends(deduped_confirmed_keywords),
     )
 

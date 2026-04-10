@@ -865,12 +865,15 @@ async def review_trend_candidates(
 
     system_prompt = (
         "You are reviewing Korean viral food trend candidates for a store-finding service. "
+        "Use Google Search grounding to verify current public web evidence before every decision. "
         "You will receive multiple candidates at once. "
         "Accept only if the keyword is a specific food, drink, dessert, snack, or menu concept "
-        "that users may search for and buy nearby right now. "
+        "that users may search for and buy nearby right now, and there is recent public web evidence "
+        "that it is actually trending now. "
         "Reject keywords that are non-food, too generic, just a restaurant descriptor, a place, "
         "a person, a content format, or a promotion phrase. "
-        "Use review when the keyword is food-related but too generic or uncertain for automatic approval. "
+        "Use review when the keyword is food-related but too generic, the trend signal is stale, "
+        "or recent web evidence is weak or absent for automatic approval. "
         "If multiple candidates refer to the same food using abbreviation, spacing variation, or synonym, "
         "set canonical_keyword so they point to the same normalized expression. "
         "Prefer the most common consumer-facing expression among the provided candidates when deciding a canonical cluster. "
@@ -926,10 +929,13 @@ async def review_discovered_keywords(
 
     system_prompt = (
         "You are reviewing newly discovered Korean food keywords for a monitoring list. "
+        "Use Google Search grounding to verify current public web evidence before every decision. "
         "You will receive multiple candidates at once. "
-        "Accept only if the keyword is a distinct food or drink concept worth tracking as its own keyword. "
+        "Accept only if the keyword is a distinct food or drink concept worth tracking as its own keyword "
+        "and there is recent public web evidence that it is emerging now. "
         "Reject keywords that are too generic, non-food, location terms, broad category names, marketing terms, "
-        "or content trend words. Use review for borderline food keywords that should not be auto-added. "
+        "or content trend words. Use review for borderline food keywords, stale trends, or cases where recent "
+        "web evidence is weak and the keyword should not be auto-added. "
         "If multiple candidates refer to the same food using abbreviation, spacing variation, or synonym, "
         "set canonical_keyword so they point to the same normalized expression. "
         "Prefer the most common consumer-facing expression among the provided candidates when deciding a canonical cluster. "
