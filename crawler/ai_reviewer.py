@@ -817,6 +817,13 @@ async def _request_text_review(
             try:
                 raw = _extract_json_blob(retry_response.text)
             except AIReviewError as retry_exc:
+                logger.error(
+                    "JSON conversion retry also failed.\n"
+                    "--- Original grounded response ---\n%s\n"
+                    "--- Conversion retry response ---\n%s",
+                    response.text[:2000],
+                    retry_response.text[:2000],
+                )
                 raise AIReviewError(
                     _append_response_detail(
                         f"{str(exc)}; JSON conversion retry also failed parsing: {retry_exc}",
