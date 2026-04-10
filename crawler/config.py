@@ -126,9 +126,6 @@ class Settings:
     TREND_GENERIC_MIN_LIFT_PCT: float = float(
         os.getenv("TREND_GENERIC_MIN_LIFT_PCT", "10")
     )
-    TREND_RANK_ONLY_MIN_LIFT_PCT: float = float(
-        os.getenv("TREND_RANK_ONLY_MIN_LIFT_PCT", "5")
-    )
     TREND_GENERIC_MIN_RECENT_BLOG_HITS: int = int(
         os.getenv("TREND_GENERIC_MIN_RECENT_BLOG_HITS", "3")
     )
