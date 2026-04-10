@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import "./globals.css";
 import NativeInitializer from "@/components/NativeInitializer";
 import PageViewTracker from "@/components/PageViewTracker";
+import { ADSENSE_CLIENT } from "@/lib/adsense";
 import {
   NAVER_SITE_VERIFICATION,
   SITE_DESCRIPTION,
@@ -11,8 +11,6 @@ import {
   SITE_URL,
 } from "@/lib/site";
 import { absoluteUrl } from "@/lib/seo";
-
-const ADSENSE_CLIENT = "ca-pub-3904162559135531";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -79,12 +77,13 @@ export default function RootLayout({
           name="naver-site-verification"
           content={NAVER_SITE_VERIFICATION}
         />
-        <Script
-          id="google-adsense"
-          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`}
-          strategy="afterInteractive"
-          crossOrigin="anonymous"
-        />
+        {ADSENSE_CLIENT ? (
+          <script
+            async
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`}
+            crossOrigin="anonymous"
+          />
+        ) : null}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: structuredData }}

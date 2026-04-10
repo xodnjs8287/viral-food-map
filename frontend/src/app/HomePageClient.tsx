@@ -6,10 +6,12 @@ import Image from "next/image";
 import Link from "next/link";
 
 import BottomNav from "@/components/BottomNav";
+import AdSlot from "@/components/AdSlot";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import ScrollToTop from "@/components/ScrollToTop";
 import TrendCard from "@/components/TrendCard";
+import { ADSENSE_HOME_SLOT } from "@/lib/adsense";
 import { getCurrentPosition } from "@/lib/native-geolocation";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import {
@@ -855,6 +857,8 @@ export default function HomePageClient({
             </div>
           </section>
         ) : null}
+
+        <AdSlot slot={ADSENSE_HOME_SLOT} className="mt-8" />
 
         <Footer />
       </main>

@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Header from "@/components/Header";
+import AdSlot from "@/components/AdSlot";
 import BottomNav from "@/components/BottomNav";
 import KakaoMap, { type MapBounds } from "@/components/KakaoMap";
+import { ADSENSE_MAP_SLOT } from "@/lib/adsense";
 import { openExternalUrl, openInstagramTag } from "@/lib/external-links";
 import { supabase } from "@/lib/supabase";
 import type { Store, Trend } from "@/lib/types";
@@ -345,6 +347,8 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
             </div>
           )}
         </div>
+
+        <AdSlot slot={ADSENSE_MAP_SLOT} className="pt-2" />
       </main>
       <BottomNav />
     </>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
+import AdSlot from "@/components/AdSlot";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import KakaoMap from "@/components/KakaoMap";
@@ -10,6 +11,7 @@ import StoreList from "@/components/StoreList";
 import TrendBadge from "@/components/TrendBadge";
 import { getCurrentPosition } from "@/lib/native-geolocation";
 import ShareButton from "@/components/ShareButton";
+import { ADSENSE_TREND_DETAIL_SLOT } from "@/lib/adsense";
 import type { Trend, Store } from "@/lib/types";
 
 interface TrendDetailPageClientProps {
@@ -227,6 +229,8 @@ export default function TrendDetailPageClient({
             onStoreClick={setSelectedStoreId}
           />
         </div>
+
+        <AdSlot slot={ADSENSE_TREND_DETAIL_SLOT} />
       </main>
       <BottomNav />
       <ScrollToTop />
