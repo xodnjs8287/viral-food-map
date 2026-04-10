@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { getCrawlerBaseUrl, triggerKeywordDiscovery } from "@/lib/crawler";
+import {
+  getCrawlerBaseUrl,
+  triggerKeywordDiscovery,
+  type KeywordDiscoverySummary,
+} from "@/lib/crawler";
 
 interface KeywordRow {
   id: string;
@@ -25,6 +29,7 @@ export default function KeywordsTab() {
   const [newCategory, setNewCategory] = useState(CATEGORIES[0]);
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatus>("idle");
   const [discoveryMessage, setDiscoveryMessage] = useState<string | null>(null);
+  const [discoverySummary, setDiscoverySummary] = useState<KeywordDiscoverySummary | null>(null);
 
   const fetchKeywords = async () => {
     const { data } = await supabase
@@ -82,6 +87,7 @@ export default function KeywordsTab() {
 
     setDiscoveryStatus("loading");
     setDiscoveryMessage("키워드 발굴을 실행하고 있습니다...");
+    setDiscoverySummary(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const accessToken = session?.access_token;
@@ -92,14 +98,16 @@ export default function KeywordsTab() {
       const result = await triggerKeywordDiscovery(accessToken);
       setDiscoveryStatus("success");
       setDiscoveryMessage(result.message);
+      setDiscoverySummary(result.summary);
       await fetchKeywords();
-      setTimeout(() => setDiscoveryStatus("idle"), 3000);
     } catch (error) {
       setDiscoveryStatus("error");
       setDiscoveryMessage(
         error instanceof Error ? error.message : "키워드 발굴 실행에 실패했습니다."
       );
-      setTimeout(() => setDiscoveryStatus("idle"), 5000);
+      setTimeout(() => {
+        setDiscoveryStatus("idle");
+      }, 5000);
     }
   };
 
@@ -162,6 +170,149 @@ export default function KeywordsTab() {
                     : "키워드 발굴"}
           </button>
         </div>
+
+        {/* 발굴 결과 상세 */}
+        {discoverySummary && (
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            {/* 수집 통계 */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-gray-900">{discoverySummary.queries}</p>
+                <p className="text-[11px] text-gray-400">메타 쿼리</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-gray-900">{discoverySummary.collected_posts}</p>
+                <p className="text-[11px] text-gray-400">블로그 수집</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-gray-900">{discoverySummary.youtube_videos}</p>
+                <p className="text-[11px] text-gray-400">유튜브 영상</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-gray-900">{discoverySummary.lead_candidates}</p>
+                <p className="text-[11px] text-gray-400">후보 키워드</p>
+              </div>
+            </div>
+
+            {/* AI 검토 */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="bg-purple-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-purple-700">{discoverySummary.ai_reviewed}</p>
+                <p className="text-[11px] text-purple-400">AI 검토</p>
+              </div>
+              <div className="bg-green-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-green-700">{discoverySummary.ai_accepted}</p>
+                <p className="text-[11px] text-green-500">AI 수용</p>
+              </div>
+              <div className="bg-blue-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-blue-700">{discoverySummary.ai_calls_used}</p>
+                <p className="text-[11px] text-blue-400">AI 호출</p>
+              </div>
+              <div className={`rounded-lg p-2.5 text-center ${discoverySummary.budget_exhausted ? "bg-red-50" : "bg-gray-50"}`}>
+                <p className={`text-lg font-bold ${discoverySummary.budget_exhausted ? "text-red-600" : "text-gray-900"}`}>
+                  {discoverySummary.ai_calls_remaining}
+                </p>
+                <p className={`text-[11px] ${discoverySummary.budget_exhausted ? "text-red-400" : "text-gray-400"}`}>
+                  잔여 예산{discoverySummary.budget_exhausted ? " (소진)" : ""}
+                </p>
+              </div>
+            </div>
+
+            {/* 발굴된 키워드 */}
+            {discoverySummary.keywords.length > 0 && (
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-gray-600 mb-1.5">발굴된 키워드</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {discoverySummary.keywords.map((kw) => (
+                    <span key={kw} className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 별칭 매핑 */}
+            {discoverySummary.canonicalized_keywords.length > 0 && (
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-gray-600 mb-1.5">
+                  별칭 매핑 ({discoverySummary.alias_matches}건)
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {discoverySummary.canonicalized_keywords.map((c) => (
+                    <span key={c} className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
+                      {c}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* AI 그라운딩 */}
+            {discoverySummary.ai_grounding_status === "used" && (
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-gray-600 mb-1.5">AI 그라운딩</p>
+                {discoverySummary.ai_grounding_queries.length > 0 && (
+                  <div className="mb-1">
+                    <span className="text-[11px] text-gray-400">검색 쿼리: </span>
+                    <span className="text-xs text-gray-600">
+                      {discoverySummary.ai_grounding_queries.join(", ")}
+                    </span>
+                  </div>
+                )}
+                {discoverySummary.ai_grounding_sources.length > 0 && (
+                  <div>
+                    <span className="text-[11px] text-gray-400">참조 출처: </span>
+                    <span className="text-xs text-gray-600">
+                      {discoverySummary.ai_grounding_sources.join(", ")}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* AI 거절/보류 상세 */}
+            {discoverySummary.ai_rejected_details.length > 0 && (
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-gray-600 mb-1.5">AI 거절 키워드</p>
+                <div className="bg-red-50 rounded-lg p-2.5 space-y-1">
+                  {discoverySummary.ai_rejected_details.map((detail, i) => (
+                    <p key={i} className="text-xs text-red-600 break-all">{detail}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {discoverySummary.ai_review_details.length > 0 && (
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-gray-600 mb-1.5">신뢰도 미달 (보류)</p>
+                <div className="bg-yellow-50 rounded-lg p-2.5 space-y-1">
+                  {discoverySummary.ai_review_details.map((detail, i) => (
+                    <p key={i} className="text-xs text-yellow-700 break-all">{detail}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {discoverySummary.ai_fallback_details.length > 0 && (
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-gray-600 mb-1.5">AI 배치 실패</p>
+                <div className="bg-orange-50 rounded-lg p-2.5 space-y-1">
+                  {discoverySummary.ai_fallback_details.map((detail, i) => (
+                    <p key={i} className="text-xs text-orange-600 break-all">{detail}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => setDiscoverySummary(null)}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              결과 닫기
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 추가 폼 */}

@@ -291,12 +291,32 @@ export async function publishInstagramFeed(
   return response.json();
 }
 
+export interface KeywordDiscoverySummary {
+  queries: number;
+  collected_posts: number;
+  youtube_videos: number;
+  lead_candidates: number;
+  new_keywords: number;
+  keywords: string[];
+  ai_reviewed: number;
+  ai_accepted: number;
+  ai_grounding_status: string | null;
+  ai_grounding_detail: string | null;
+  ai_grounding_queries: string[];
+  ai_grounding_sources: string[];
+  ai_rejected_details: string[];
+  ai_review_details: string[];
+  ai_fallback_details: string[];
+  ai_calls_used: number;
+  ai_calls_remaining: number;
+  budget_exhausted: boolean;
+  alias_matches: number;
+  canonicalized_keywords: string[];
+}
+
 export interface KeywordDiscoveryResponse {
   message: string;
-  summary: {
-    new_keywords: number;
-    [key: string]: unknown;
-  };
+  summary: KeywordDiscoverySummary;
 }
 
 export async function triggerKeywordDiscovery(
