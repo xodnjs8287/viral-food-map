@@ -720,7 +720,10 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
         acceleration = calculate_acceleration(data_points)
         popularity = float(popularity_scores.get(keyword, 0.0))
         rank = popularity_ranks.get(keyword)
-        if acceleration >= settings.TREND_THRESHOLD:
+        is_rank_candidate = (
+            rank is not None and rank <= settings.TREND_TOP_RANK_CANDIDATE_MAX
+        )
+        if acceleration >= settings.TREND_THRESHOLD or is_rank_candidate:
             candidates.append(
                 {
                     "keyword": keyword,
@@ -728,6 +731,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
                     "data_points": data_points,
                     "popularity": popularity,
                     "rank": rank,
+                    "is_rank_only": is_rank_candidate and acceleration < settings.TREND_THRESHOLD,
                 }
             )
 
@@ -793,6 +797,15 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             summary["filtered_stale_keywords"].append(keyword)
             rejected_keywords.append(keyword)
             continue
+
+        if candidate.get("is_rank_only"):
+            if (
+                novelty_lift is None
+                or novelty_lift < settings.TREND_RANK_ONLY_MIN_LIFT_PCT
+            ):
+                summary["filtered_stale_keywords"].append(keyword)
+                rejected_keywords.append(keyword)
+                continue
 
         if requires_trend_revalidation(keyword):
             if (
