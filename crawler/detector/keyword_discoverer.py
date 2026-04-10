@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import threading
 from collections import Counter, defaultdict
 
 import httpx
@@ -114,12 +115,16 @@ YOUTUBE_IGNORED_TAG_KEYS = {
 }
 
 _kiwi: Kiwi | None = None
+_kiwi_lock = threading.Lock()
 
 
 def get_kiwi() -> Kiwi:
     global _kiwi
     if _kiwi is None:
-        _kiwi = Kiwi()
+        with _kiwi_lock:
+            if _kiwi is None:
+                logger.info("Initializing Kiwi analyzer")
+                _kiwi = Kiwi()
     return _kiwi
 
 

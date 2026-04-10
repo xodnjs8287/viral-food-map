@@ -21,10 +21,20 @@ logger = logging.getLogger(__name__)
 
 scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.SCHEDULER_TIMEZONE))
 trend_detection_lock = threading.Lock()
+keyword_discovery_lock = threading.Lock()
 store_update_lock = threading.Lock()
 yomechu_enrich_lock = threading.Lock()
 trend_detection_task: asyncio.Task | None = None
+keyword_discovery_thread: threading.Thread | None = None
 trend_detection_status: dict[str, object | None] = {
+    "state": "idle",
+    "last_trigger": None,
+    "last_started_at": None,
+    "last_finished_at": None,
+    "last_summary": None,
+    "last_error": None,
+}
+keyword_discovery_status: dict[str, object | None] = {
     "state": "idle",
     "last_trigger": None,
     "last_started_at": None,
@@ -289,6 +299,84 @@ def _handle_trend_detection_task_result(task: asyncio.Task) -> None:
             trend_detection_task = None
 
 
+def _mark_keyword_discovery_queued(trigger: str) -> None:
+    keyword_discovery_status["state"] = "queued"
+    keyword_discovery_status["last_trigger"] = trigger
+    keyword_discovery_status["last_error"] = None
+
+
+def _mark_keyword_discovery_running(trigger: str) -> None:
+    keyword_discovery_status["state"] = "running"
+    keyword_discovery_status["last_trigger"] = trigger
+    keyword_discovery_status["last_started_at"] = _utc_now_iso()
+    keyword_discovery_status["last_error"] = None
+
+
+def _mark_keyword_discovery_finished(summary: dict) -> None:
+    keyword_discovery_status["state"] = "completed"
+    keyword_discovery_status["last_finished_at"] = _utc_now_iso()
+    keyword_discovery_status["last_summary"] = summary
+    keyword_discovery_status["last_error"] = None
+
+
+def _mark_keyword_discovery_failed(error: str) -> None:
+    keyword_discovery_status["state"] = "failed"
+    keyword_discovery_status["last_finished_at"] = _utc_now_iso()
+    keyword_discovery_status["last_error"] = error
+
+
+def get_keyword_discovery_status() -> dict[str, object | None]:
+    status = dict(keyword_discovery_status)
+    status["running"] = bool(
+        keyword_discovery_lock.locked()
+        or status.get("state") in {"queued", "running"}
+        or (keyword_discovery_thread and keyword_discovery_thread.is_alive())
+    )
+    return status
+
+
+def _run_keyword_discovery_thread(trigger: str) -> None:
+    global keyword_discovery_thread
+
+    try:
+        asyncio.run(run_keyword_discovery_job(trigger=trigger))
+    except Exception:
+        logger.exception("%s detached thread failed", DISCOVERY_JOB_NAME)
+    finally:
+        current_thread = threading.current_thread()
+        if keyword_discovery_thread is current_thread:
+            keyword_discovery_thread = None
+
+
+def queue_keyword_discovery_job(trigger: str = "manual") -> dict[str, object]:
+    global keyword_discovery_thread
+
+    if keyword_discovery_lock.locked() or (
+        keyword_discovery_thread and keyword_discovery_thread.is_alive()
+    ):
+        return {
+            "accepted": False,
+            "status": "running",
+            "message": "Keyword discovery is already running.",
+            "job": get_keyword_discovery_status(),
+        }
+
+    _mark_keyword_discovery_queued(trigger)
+    keyword_discovery_thread = threading.Thread(
+        target=_run_keyword_discovery_thread,
+        args=(trigger,),
+        name="keyword-discovery",
+        daemon=True,
+    )
+    keyword_discovery_thread.start()
+    return {
+        "accepted": True,
+        "status": "queued",
+        "message": "Keyword discovery queued.",
+        "job": get_keyword_discovery_status(),
+    }
+
+
 def queue_trend_detection_job(trigger: str = "manual") -> dict[str, object]:
     global trend_detection_task
 
@@ -317,7 +405,7 @@ async def run_trend_detection_job(trigger: str = "scheduler") -> dict:
     job_name = TREND_JOB_NAME
     if not trend_detection_lock.acquire(blocking=False):
         logger.warning("%s skipped because previous run is still active", job_name)
-        return {
+        summary = {
             "confirmed": 0,
             "stored_trends": 0,
             "stored_stores": 0,
@@ -325,6 +413,8 @@ async def run_trend_detection_job(trigger: str = "scheduler") -> dict:
             "skipped": True,
             "reason": "already_running",
         }
+        _mark_trend_detection_finished(summary)
+        return summary
 
     _mark_trend_detection_running(trigger)
     logger.info("%s started (%s)", job_name, trigger)
@@ -412,6 +502,18 @@ async def run_trend_detection_job(trigger: str = "scheduler") -> dict:
 
 async def run_keyword_discovery_job(trigger: str = "scheduler") -> dict:
     job_name = DISCOVERY_JOB_NAME
+    if not keyword_discovery_lock.acquire(blocking=False):
+        logger.warning("%s skipped because previous run is still active", job_name)
+        summary = {
+            "new_keywords": 0,
+            "keywords": [],
+            "skipped": True,
+            "reason": "already_running",
+        }
+        _mark_keyword_discovery_finished(summary)
+        return summary
+
+    _mark_keyword_discovery_running(trigger)
     logger.info("%s started (%s)", job_name, trigger)
     await send_discord_message(_build_job_message(job_name, trigger, "시작"))
 
@@ -420,8 +522,10 @@ async def run_keyword_discovery_job(trigger: str = "scheduler") -> dict:
         await send_discord_message(
             _build_job_message(job_name, trigger, "완료", summary=summary)
         )
+        _mark_keyword_discovery_finished(summary)
         return summary
     except Exception as exc:
+        _mark_keyword_discovery_failed(str(exc))
         logger.exception("%s failed (%s)", job_name, trigger)
         await report_exception_to_discord(
             f"{job_name} 실패",
@@ -429,6 +533,8 @@ async def run_keyword_discovery_job(trigger: str = "scheduler") -> dict:
             details={"trigger": trigger},
         )
         raise
+    finally:
+        keyword_discovery_lock.release()
 
 
 async def run_store_update_job(trigger: str = "scheduler") -> dict:

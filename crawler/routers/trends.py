@@ -4,9 +4,10 @@ from fastapi.responses import JSONResponse
 from auth import AdminUser, require_admin_user
 from database import get_client
 from scheduler.jobs import (
+    get_keyword_discovery_status,
     get_trend_detection_status,
+    queue_keyword_discovery_job,
     queue_trend_detection_job,
-    run_keyword_discovery_job,
 )
 
 router = APIRouter(prefix="/api/trends", tags=["trends"])
@@ -66,8 +67,11 @@ async def get_detection_status():
 @router.post("/discover-keywords")
 async def trigger_discovery(_: AdminUser = Depends(require_admin_user)):
     """수동 키워드 발굴 트리거"""
-    summary = await run_keyword_discovery_job(trigger="manual")
-    return {
-        "message": f"키워드 {summary['new_keywords']}개 발견",
-        "summary": summary,
-    }
+    result = queue_keyword_discovery_job(trigger="manual")
+    status_code = 202 if result["accepted"] else 200
+    return JSONResponse(status_code=status_code, content=result)
+
+
+@router.get("/discover-keywords/status")
+async def get_discovery_status():
+    return get_keyword_discovery_status()

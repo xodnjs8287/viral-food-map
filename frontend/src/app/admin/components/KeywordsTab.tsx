@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
+  fetchKeywordDiscoveryStatus,
   getCrawlerBaseUrl,
   triggerKeywordDiscovery,
+  type KeywordDiscoveryJobStatus,
   type KeywordDiscoverySummary,
 } from "@/lib/crawler";
 
@@ -21,6 +23,24 @@ interface KeywordRow {
 type DiscoveryStatus = "idle" | "loading" | "success" | "error";
 
 const CATEGORIES = ["디저트", "음료", "식사", "간식"];
+const KEYWORD_DISCOVERY_TIMEOUT_MS = 3 * 60 * 1000;
+const KEYWORD_DISCOVERY_POLL_INTERVAL_MS = 2000;
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function formatKeywordDiscoveryMessage(summary: KeywordDiscoverySummary | null) {
+  if (!summary) {
+    return "키워드 발굴이 완료되었습니다.";
+  }
+
+  if (summary.new_keywords > 0) {
+    return `키워드 ${summary.new_keywords}개를 발굴했습니다.`;
+  }
+
+  return "새롭게 등록할 키워드는 없었습니다.";
+}
 
 export default function KeywordsTab() {
   const [keywords, setKeywords] = useState<KeywordRow[]>([]);
@@ -81,6 +101,26 @@ export default function KeywordsTab() {
     await fetchKeywords();
   };
 
+  const waitForKeywordDiscoveryCompletion = async (): Promise<KeywordDiscoveryJobStatus> => {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < KEYWORD_DISCOVERY_TIMEOUT_MS) {
+      const job = await fetchKeywordDiscoveryStatus();
+
+      if (job.state === "completed") {
+        return job;
+      }
+
+      if (job.state === "failed") {
+        throw new Error(job.last_error || "키워드 발굴 실행에 실패했습니다.");
+      }
+
+      await delay(KEYWORD_DISCOVERY_POLL_INTERVAL_MS);
+    }
+
+    throw new Error("키워드 발굴 완료 확인이 지연되고 있습니다.");
+  };
+
   const triggerDiscovery = async () => {
     const apiUrl = getCrawlerBaseUrl();
     if (!apiUrl) return;
@@ -96,9 +136,15 @@ export default function KeywordsTab() {
       }
 
       const result = await triggerKeywordDiscovery(accessToken);
+      setDiscoveryMessage(
+        result.accepted
+          ? "키워드 발굴을 시작했습니다. 완료 여부를 확인하고 있습니다."
+          : "이미 실행 중인 키워드 발굴을 확인하고 있습니다."
+      );
+      const job = await waitForKeywordDiscoveryCompletion();
       setDiscoveryStatus("success");
-      setDiscoveryMessage(result.message);
-      setDiscoverySummary(result.summary);
+      setDiscoveryMessage(formatKeywordDiscoveryMessage(job.last_summary));
+      setDiscoverySummary(job.last_summary);
       await fetchKeywords();
     } catch (error) {
       setDiscoveryStatus("error");

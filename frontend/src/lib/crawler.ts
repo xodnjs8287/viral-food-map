@@ -316,14 +316,26 @@ export interface KeywordDiscoverySummary {
   canonicalized_keywords: string[];
 }
 
-export interface KeywordDiscoveryResponse {
+export interface KeywordDiscoveryJobStatus {
+  state: "idle" | "queued" | "running" | "completed" | "failed";
+  last_trigger: string | null;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  last_summary: KeywordDiscoverySummary | null;
+  last_error: string | null;
+  running: boolean;
+}
+
+export interface TriggerKeywordDiscoveryResponse {
+  accepted: boolean;
+  status: "queued" | "running";
   message: string;
-  summary: KeywordDiscoverySummary;
+  job: KeywordDiscoveryJobStatus;
 }
 
 export async function triggerKeywordDiscovery(
   accessToken: string
-): Promise<KeywordDiscoveryResponse> {
+): Promise<TriggerKeywordDiscoveryResponse> {
   if (!CRAWLER_BASE_URL) {
     throw new Error("크롤러 API 주소가 설정되지 않았습니다.");
   }
@@ -343,6 +355,20 @@ export async function triggerKeywordDiscovery(
         "키워드 발굴 실행에 실패했습니다."
       )
     );
+  }
+
+  return response.json();
+}
+
+export async function fetchKeywordDiscoveryStatus(): Promise<KeywordDiscoveryJobStatus> {
+  if (!CRAWLER_BASE_URL) {
+    throw new Error("크롤러 API 주소가 설정되지 않았습니다.");
+  }
+
+  const response = await fetch(`${CRAWLER_BASE_URL}/api/trends/discover-keywords/status`);
+
+  if (!response.ok) {
+    throw new Error("키워드 발굴 상태 확인에 실패했습니다.");
   }
 
   return response.json();
