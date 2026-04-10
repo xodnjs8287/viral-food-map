@@ -10,12 +10,14 @@ import ReportsTab from "./components/ReportsTab";
 import StoresTab from "./components/StoresTab";
 import YomechuTab from "./components/YomechuTab";
 import AiAliasesTab from "./components/AiAliasesTab";
+import AiReviewQueueTab from "./components/AiReviewQueueTab";
 import TrendReviewsTab from "./components/TrendReviewsTab";
 import { supabase } from "@/lib/supabase";
 
 type AdminTab =
   | "dashboard"
   | "trends"
+  | "ai-review-queue"
   | "trend-reviews"
   | "keywords"
   | "ai-aliases"
@@ -26,7 +28,8 @@ type AdminTab =
 const TABS: { key: AdminTab; label: string }[] = [
   { key: "dashboard", label: "대시보드" },
   { key: "trends", label: "트렌드" },
-  { key: "trend-reviews", label: "AI 리뷰" },
+  { key: "ai-review-queue", label: "AI 보류" },
+  { key: "trend-reviews", label: "AI 리뷰 로그" },
   { key: "keywords", label: "키워드" },
   { key: "ai-aliases", label: "AI/동의어" },
   { key: "reports", label: "제보 관리" },
@@ -61,7 +64,7 @@ export default function AdminPageClient() {
   if (!authChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <p className="text-gray-400">로딩 중..</p>
+        <p className="text-gray-400">로딩 중...</p>
       </div>
     );
   }
@@ -74,9 +77,9 @@ export default function AdminPageClient() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-lg">
-          <h1 className="text-xl font-bold text-gray-900">관리자 권한이 필요합니다</h1>
+          <h1 className="text-xl font-bold text-gray-900">관리자 권한이 필요합니다.</h1>
           <p className="mt-2 text-sm text-gray-400">
-            현재 계정은 어드민 페이지에 접근할 수 없습니다.
+            현재 계정으로는 관리자 페이지에 접근할 수 없습니다.
           </p>
           <button
             onClick={async () => {
@@ -132,6 +135,7 @@ export default function AdminPageClient() {
       <main className="mx-auto max-w-4xl px-4 py-6">
         {tab === "dashboard" && <DashboardTab />}
         {tab === "trends" && <TrendsTab />}
+        {tab === "ai-review-queue" && <AiReviewQueueTab />}
         {tab === "trend-reviews" && <TrendReviewsTab />}
         {tab === "keywords" && <KeywordsTab />}
         {tab === "ai-aliases" && <AiAliasesTab />}

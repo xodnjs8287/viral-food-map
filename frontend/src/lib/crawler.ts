@@ -100,6 +100,7 @@ export interface TrendDetectionSummary {
   confirmed_keywords: string[];
   ai_calls_used?: number;
   ai_calls_remaining?: number;
+  ai_reviews_queued?: number;
   ai_grounding_status?: string | null;
   ai_grounding_detail?: string | null;
   ai_grounding_queries?: string[];
@@ -300,6 +301,7 @@ export interface KeywordDiscoverySummary {
   keywords: string[];
   ai_reviewed: number;
   ai_accepted: number;
+  ai_reviews_queued?: number;
   ai_grounding_status: string | null;
   ai_grounding_detail: string | null;
   ai_grounding_queries: string[];

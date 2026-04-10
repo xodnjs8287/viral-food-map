@@ -21,7 +21,14 @@ from automation_budget import (
 from notifications import send_discord_message
 from crawlers.youtube_data import collect_youtube_lead_videos
 from config import settings
-from database import get_all_keywords, get_keyword_aliases, insert_keywords, upsert_keyword_aliases
+from database import (
+    get_ai_review_latest_statuses,
+    get_all_keywords,
+    get_keyword_aliases,
+    insert_keywords,
+    upsert_ai_review_queue_entry,
+    upsert_keyword_aliases,
+)
 from detector.alias_manager import (
     build_alias_lookup,
     build_alias_rows,
@@ -412,6 +419,28 @@ def _build_ai_detail_line(
     return detail[:320]
 
 
+def _build_review_queue_payload(
+    candidate: dict,
+    *,
+    category: str,
+    review: TrendReviewResult,
+) -> dict:
+    return {
+        "category_hint": candidate.get("category"),
+        "category": category,
+        "canonical_keyword": review.canonical_keyword,
+        "frequency": candidate.get("frequency"),
+        "food_score": candidate.get("food_score"),
+        "food_ratio": candidate.get("food_ratio"),
+        "lead_score": candidate.get("lead_score"),
+        "lead_sources": candidate.get("lead_sources", []),
+        "raw_terms": candidate.get("raw_terms", []),
+        "evidence_snippets": candidate.get("evidence_snippets", []),
+        "grounding_queries": review.grounding_queries,
+        "grounding_sources": review.grounding_sources,
+    }
+
+
 def _summarize_ai_grounding(
     review_results: dict[str, TrendReviewResult],
 ) -> tuple[str | None, str | None, list[str], list[str]]:
@@ -452,6 +481,7 @@ def _build_summary() -> dict:
         "keywords": [],
         "ai_reviewed": 0,
         "ai_accepted": 0,
+        "ai_reviews_queued": 0,
         "ai_grounding_status": None,
         "ai_grounding_detail": None,
         "ai_grounding_queries": [],
@@ -589,6 +619,7 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
         for row in alias_rows
         if row.get("alias") or row.get("alias_normalized")
     )
+    review_statuses = get_ai_review_latest_statuses("keyword")
 
     candidates: list[dict] = []
     seen_candidate_keys: set[str] = set()
@@ -604,6 +635,8 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
                     noun,
                     alias_lookup[normalized_noun],
                 )
+            continue
+        if review_statuses.get(normalized_noun) in {"pending", "rejected"}:
             continue
         if frequency < settings.DISCOVERY_MIN_FREQUENCY and lead_score <= 0:
             break
@@ -658,6 +691,8 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
             or normalized_noun in seen_candidate_keys
             or normalized_noun in existing_keys
         ):
+            continue
+        if review_statuses.get(normalized_noun) in {"pending", "rejected"}:
             continue
 
         if normalized_noun in alias_lookup:
@@ -782,6 +817,28 @@ async def discover_keywords(trigger: str = "scheduler") -> dict:
                         grounding_sources=review.grounding_sources,
                     )
                 )
+                if review.verdict != "reject":
+                    queue_result = upsert_ai_review_queue_entry(
+                        {
+                            "source_job": "keyword_discovery",
+                            "item_type": "keyword",
+                            "candidate_key": normalize_keyword_text(keyword),
+                            "candidate_name": keyword,
+                            "category": category,
+                            "confidence": review.confidence,
+                            "ai_verdict": review.verdict,
+                            "reason": review.reason,
+                            "model": review.model,
+                            "trigger": trigger,
+                            "payload": _build_review_queue_payload(
+                                candidate,
+                                category=category,
+                                review=review,
+                            ),
+                        }
+                    )
+                    if queue_result is not None:
+                        summary["ai_reviews_queued"] += 1
                 continue
 
             summary["ai_accepted"] += 1

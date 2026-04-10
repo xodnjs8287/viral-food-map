@@ -209,6 +209,78 @@ def insert_trend_review(review_data: dict):
         return None
 
 
+def upsert_ai_review_queue_entry(entry_data: dict[str, Any]):
+    payload = {
+        **entry_data,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    payload.setdefault("status", "pending")
+
+    try:
+        existing_rows = (
+            get_client()
+            .table("ai_review_queue")
+            .select("id")
+            .eq("item_type", payload.get("item_type"))
+            .eq("candidate_key", payload.get("candidate_key"))
+            .eq("status", "pending")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if existing_rows:
+            return (
+                get_client()
+                .table("ai_review_queue")
+                .update(payload)
+                .eq("id", existing_rows[0]["id"])
+                .execute()
+            )
+
+        return get_client().table("ai_review_queue").insert(payload).execute()
+    except Exception as exc:
+        _warn_once(
+            "ai_review_queue_upsert",
+            "ai_review_queue upsert unavailable",
+            exc,
+        )
+        return None
+
+
+def get_ai_review_latest_statuses(item_type: str) -> dict[str, str]:
+    try:
+        rows = (
+            get_client()
+            .table("ai_review_queue")
+            .select("candidate_key,status,updated_at,created_at")
+            .eq("item_type", item_type)
+            .order("updated_at", desc=True)
+            .order("created_at", desc=True)
+            .limit(1000)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        _warn_once(
+            "ai_review_queue_statuses",
+            "ai_review_queue status lookup unavailable",
+            exc,
+        )
+        return {}
+
+    latest_statuses: dict[str, str] = {}
+    for row in rows:
+        candidate_key = str(row.get("candidate_key") or "").strip()
+        status = str(row.get("status") or "").strip()
+        if not candidate_key or not status or candidate_key in latest_statuses:
+            continue
+        latest_statuses[candidate_key] = status
+
+    return latest_statuses
+
+
 def get_recent_reviews_by_keyword(keyword: str, limit: int = 10) -> list[dict]:
     try:
         return (

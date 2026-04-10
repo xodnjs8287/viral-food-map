@@ -31,6 +31,7 @@ from crawlers.naver_search import (
 from crawlers.store_finder import find_stores_nationwide
 from database import (
     delete_stores_by_trend_id,
+    get_ai_review_latest_statuses,
     get_active_trends,
     get_all_keywords,
     get_keyword_aliases,
@@ -40,6 +41,7 @@ from database import (
     insert_trend_review,
     update_trend_status,
     update_trend_verdict_counts,
+    upsert_ai_review_queue_entry,
     upsert_keyword_aliases,
     upsert_trend,
 )
@@ -253,6 +255,33 @@ def _build_ai_detail_line(
     return detail[:320]
 
 
+def _build_review_queue_payload(
+    candidate: dict,
+    *,
+    category: str,
+    review: TrendReviewResult,
+    existing_trend: dict | None,
+) -> dict:
+    return {
+        "category_hint": candidate.get("category_hint"),
+        "category": category,
+        "canonical_keyword": review.canonical_keyword,
+        "score": candidate.get("score"),
+        "acceleration": candidate.get("acceleration"),
+        "novelty_lift": candidate.get("novelty_lift"),
+        "score_breakdown": candidate.get("score_breakdown"),
+        "blog_count": candidate.get("blog_count"),
+        "blog_recent_count": candidate.get("blog_recent_count"),
+        "blog_recent_ratio": candidate.get("blog_recent_ratio"),
+        "ig_count": candidate.get("ig_count"),
+        "popularity": candidate.get("popularity"),
+        "rank": candidate.get("rank"),
+        "existing_status": existing_trend.get("status") if existing_trend else None,
+        "grounding_queries": review.grounding_queries,
+        "grounding_sources": review.grounding_sources,
+    }
+
+
 def _summarize_ai_grounding(
     review_results: dict[str, TrendReviewResult],
 ) -> tuple[str | None, str | None, list[str], list[str]]:
@@ -334,6 +363,7 @@ def _build_summary() -> dict:
         "ai_reviewed": 0,
         "ai_accepted": 0,
         "ai_reviews_persisted": 0,
+        "ai_reviews_queued": 0,
         "ai_grounding_status": None,
         "ai_grounding_detail": None,
         "ai_grounding_queries": [],
@@ -686,6 +716,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
         active_trends = get_active_trends() or []
     _collapse_cached_active_duplicates(active_trends, alias_lookup)
     active_trends = get_active_trends() or []
+    review_statuses = get_ai_review_latest_statuses("trend")
 
     db_keywords = get_all_keywords() or []
     keyword_metadata_by_name = _build_keyword_metadata_by_name(
@@ -774,6 +805,8 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             existing_trend,
         )
         candidate["category_hint"] = category_hint
+        if review_statuses.get(normalize_keyword_text(keyword)) == "rejected":
+            continue
 
         if not is_food_specific_keyword(keyword):
             continue
@@ -949,18 +982,44 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
                 )
 
                 # Phase 3: hysteresis — 연속 카운트 기반 탈락 판정
-                prev_rejects = (
-                    existing_for_review.get("ai_consecutive_rejects", 0)
-                    if existing_for_review
-                    else 0
-                )
-                consecutive_rejects = prev_rejects + 1
-                if existing_for_review and existing_for_review.get("id"):
-                    update_trend_verdict_counts(
-                        existing_for_review["id"], 0, consecutive_rejects,
+                if review.verdict == "reject":
+                    prev_rejects = (
+                        existing_for_review.get("ai_consecutive_rejects", 0)
+                        if existing_for_review
+                        else 0
                     )
-                if consecutive_rejects >= settings.TREND_ACTIVE_DEMOTION_REJECTS:
-                    rejected_keywords.append(keyword)
+                    consecutive_rejects = prev_rejects + 1
+                    if existing_for_review and existing_for_review.get("id"):
+                        update_trend_verdict_counts(
+                            existing_for_review["id"], 0, consecutive_rejects,
+                        )
+                    if consecutive_rejects >= settings.TREND_ACTIVE_DEMOTION_REJECTS:
+                        rejected_keywords.append(keyword)
+                    continue
+
+                queue_result = upsert_ai_review_queue_entry(
+                    {
+                        "source_job": "trend_detection",
+                        "item_type": "trend",
+                        "candidate_key": normalize_keyword_text(keyword),
+                        "candidate_name": keyword,
+                        "category": category,
+                        "confidence": review.confidence,
+                        "ai_verdict": review.verdict,
+                        "reason": review.reason,
+                        "model": review.model,
+                        "trend_id": review_trend_id,
+                        "trigger": trigger,
+                        "payload": _build_review_queue_payload(
+                            candidate,
+                            category=category,
+                            review=review,
+                            existing_trend=existing_for_review,
+                        ),
+                    }
+                )
+                if queue_result is not None:
+                    summary["ai_reviews_queued"] += 1
                 continue
 
             # Phase 3: AI accept — 연속 accept 카운트 업데이트
