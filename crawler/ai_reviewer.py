@@ -783,19 +783,27 @@ async def _request_text_review(
     except AIReviewError as exc:
         if response.grounded:
             logger.warning(
-                "Grounded Gemini response returned invalid JSON, retrying without grounding: %s",
+                "Grounded Gemini response returned invalid JSON, converting via JSON retry: %s",
                 exc,
+            )
+            convert_instruction = (
+                f"{system_prompt}\n\n"
+                "--- IMPORTANT ---\n"
+                "The above is the original review instruction. Below is a previous AI response "
+                "that followed the instruction but was not returned in valid JSON format. "
+                "Convert it to valid JSON preserving all data exactly. "
+                "Output ONLY the JSON array or object, no explanation."
             )
             try:
                 retry_response = await _gemini_generate(
                     model=settings.AI_REVIEW_MODEL,
-                    system_instruction=system_prompt,
-                    user_content=user_content,
+                    system_instruction=convert_instruction,
+                    user_content=response.text,
                 )
             except AIReviewError as retry_exc:
                 raise AIReviewError(
                     _append_response_detail(
-                        f"{str(exc)}; no-grounding retry failed: {retry_exc}",
+                        f"{str(exc)}; JSON conversion retry failed: {retry_exc}",
                         response.response_detail,
                     ),
                     request_count=response.request_count + retry_exc.request_count,
@@ -804,20 +812,22 @@ async def _request_text_review(
             retry_response = _with_grounding_trace_detail(
                 retry_response,
                 grounded=False,
-                detail="Grounded response returned invalid JSON, retried without grounding.",
+                detail="Grounded response returned invalid JSON, converted via JSON retry.",
             )
             try:
                 raw = _extract_json_blob(retry_response.text)
             except AIReviewError as retry_exc:
                 raise AIReviewError(
                     _append_response_detail(
-                        f"{str(exc)}; no-grounding retry also failed JSON parsing: {retry_exc}",
+                        f"{str(exc)}; JSON conversion retry also failed parsing: {retry_exc}",
                         retry_response.response_detail,
                     ),
                     request_count=total_request_count,
                 ) from retry_exc
 
-            return raw, retry_response.grounding_trace, total_request_count
+            # Preserve grounding trace from the original grounded response.
+            grounding_trace = response.grounding_trace or retry_response.grounding_trace
+            return raw, grounding_trace, total_request_count
 
         raise AIReviewError(
             _append_response_detail(str(exc), response.response_detail),

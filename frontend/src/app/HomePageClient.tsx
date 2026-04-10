@@ -398,6 +398,11 @@ export default function HomePageClient({
     fetchNearby();
   }, [trends, userLoc]);
 
+  const storeCountLabel = String(verifiedStoreCount).replace(
+    /\B(?=(\d{3})+(?!\d))/g,
+    ","
+  );
+
   const [lastUpdatedLabel, setLastUpdatedLabel] = useState<string | null>(null);
 
   useEffect(() => {
@@ -605,7 +610,7 @@ export default function HomePageClient({
                 활성 트렌드 {trends.length}개
               </span>
               <span className="rounded-full bg-white/15 px-2.5 py-1">
-                검증 판매처 {verifiedStoreCount.toLocaleString("ko-KR")}곳
+                검증 판매처 {storeCountLabel}곳
               </span>
             </div>
             <p className="mt-4 text-xl font-bold leading-snug">
@@ -630,11 +635,14 @@ export default function HomePageClient({
                 지도에서 판매처 찾기
               </Link>
             </div>
-            {lastUpdatedLabel ? (
-              <p className="mt-4 text-xs text-white/80">
-                최근 트렌드 업데이트: {lastUpdatedLabel}
-              </p>
-            ) : null}
+            <p
+              className={`mt-4 text-xs text-white/80${lastUpdatedLabel ? "" : " hidden"}`}
+              suppressHydrationWarning
+            >
+              {lastUpdatedLabel
+                ? `최근 트렌드 업데이트: ${lastUpdatedLabel}`
+                : "\u00A0"}
+            </p>
           </div>
         </section>
 
