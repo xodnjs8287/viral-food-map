@@ -796,6 +796,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
     }
 
     eligible_candidates: list[dict] = []
+    watchlist_only_candidates: list[dict] = []
     for candidate in candidates:
         keyword = candidate["keyword"]
         existing_trend = candidate_existing_trends.get(keyword)
@@ -836,9 +837,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
                 novelty_lift is None
                 or novelty_lift < settings.TREND_RANK_ONLY_MIN_LIFT_PCT
             ):
-                summary["filtered_stale_keywords"].append(keyword)
-                rejected_keywords.append(keyword)
-                continue
+                candidate["force_watchlist"] = True
 
         if requires_trend_revalidation(keyword):
             if (
@@ -878,11 +877,21 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
         candidate["ig_count"] = ig_count
         candidate["novelty_lift"] = novelty_lift
 
+        if candidate.get("force_watchlist"):
+            watchlist_only_candidates.append(candidate)
+            continue
+
         if score < settings.TREND_SCORE_THRESHOLD:
+            if (
+                candidate.get("rank") is not None
+                and candidate.get("rank") <= settings.TREND_TOP_RANK_CANDIDATE_MAX
+            ):
+                candidate["force_watchlist"] = True
+                watchlist_only_candidates.append(candidate)
             continue
         eligible_candidates.append(candidate)
 
-    if not eligible_candidates:
+    if not eligible_candidates and not watchlist_only_candidates:
         summary["deactivated_trends"] = _merge_deactivated_trends(
             invalid_active_trends,
             _deactivate_rejected_active_trends(rejected_keywords),
@@ -892,7 +901,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
 
     review_results: dict[str, TrendReviewResult] = {}
     review_payloads_by_keyword: dict[str, TrendReviewPayload] = {}
-    if settings.AI_REVIEW_ENABLED:
+    if settings.AI_REVIEW_ENABLED and eligible_candidates:
         reservation = reserve_automation_ai_call("trend_detection", trigger)
         summary["ai_calls_remaining"] = reservation.remaining_today
         if not reservation.allowed:
@@ -927,6 +936,26 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
 
     confirmed_groups: dict[str, dict] = {}
     alias_rows_to_upsert: list[dict] = []
+
+    for candidate in watchlist_only_candidates:
+        keyword = clean_display_keyword(candidate["keyword"])
+        category = candidate["category_hint"]
+        cluster_key = normalize_keyword_text(keyword)
+        group = confirmed_groups.setdefault(
+            cluster_key,
+            {
+                "candidates": [],
+                "ai_terms": [],
+                "confidence": None,
+                "review": None,
+                "consecutive_accepts": 0,
+                "has_eligible_candidate": False,
+                "needs_watchlist": False,
+            },
+        )
+        group["candidates"].append({**candidate, "category": category})
+        group["ai_terms"].append(keyword)
+        group["needs_watchlist"] = True
 
     for candidate in eligible_candidates:
         keyword = clean_display_keyword(candidate["keyword"])
@@ -1048,10 +1077,13 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
                 "confidence": None,
                 "review": None,
                 "consecutive_accepts": 0,
+                "has_eligible_candidate": False,
+                "needs_watchlist": False,
             },
         )
         group["candidates"].append({**candidate, "category": category})
         group["ai_terms"].extend(ai_terms)
+        group["has_eligible_candidate"] = True
         if confidence is not None:
             group["confidence"] = max(group["confidence"] or 0.0, confidence)
         if review is not None:
@@ -1112,8 +1144,7 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
                 alias_lookup=alias_lookup,
             ),
         )
-        if not matching_active_trends:
-            new_confirmed_keywords.append(display_keyword)
+        is_new_trend = not matching_active_trends
         primary_existing_trend = _select_primary_existing_trend(matching_existing_trends)
         if primary_existing_trend:
             consumed_existing_ids.update(
@@ -1155,16 +1186,21 @@ async def detect_trends(trigger: str = "scheduler") -> dict:
             else None
         )
         consecutive_accepts = group.get("consecutive_accepts", 0)
-        status = classify_status(
-            representative_candidate["score"],
-            representative_candidate["acceleration"],
-            existing_status=existing_status,
-            consecutive_accepts=consecutive_accepts,
-        )
+        if not group.get("has_eligible_candidate") and group.get("needs_watchlist"):
+            status = "watchlist"
+        else:
+            status = classify_status(
+                representative_candidate["score"],
+                representative_candidate["acceleration"],
+                existing_status=existing_status,
+                consecutive_accepts=consecutive_accepts,
+            )
         if status == "watchlist":
             summary["watchlist_count"] += 1
         elif existing_status == "watchlist" and status in ("active", "rising"):
             summary["promoted_from_watchlist"].append(display_keyword)
+        if is_new_trend and status != "watchlist":
+            new_confirmed_keywords.append(display_keyword)
         trend_plans.append(
             {
                 "trend_id": trend_id,
