@@ -101,7 +101,7 @@ class Settings:
     VAPID_CONTACT: str = os.getenv("VAPID_CONTACT", "mailto:support@yozmeat.com")
 
     TREND_THRESHOLD: float = float(os.getenv("TREND_THRESHOLD", "20"))
-    TREND_SCORE_THRESHOLD: float = float(os.getenv("TREND_SCORE_THRESHOLD", "25"))
+    TREND_SCORE_THRESHOLD: float = float(os.getenv("TREND_SCORE_THRESHOLD", "15"))
     TREND_RISING_SCORE_THRESHOLD: float = float(
         os.getenv("TREND_RISING_SCORE_THRESHOLD", "40")
     )
@@ -121,16 +121,16 @@ class Settings:
     TREND_BLOG_RECENT_DAYS: int = int(os.getenv("TREND_BLOG_RECENT_DAYS", "7"))
     TREND_BLOG_SAMPLE_SIZE: int = int(os.getenv("TREND_BLOG_SAMPLE_SIZE", "20"))
     TREND_BLOG_FRESHNESS_MIN_RATIO: float = float(
-        os.getenv("TREND_BLOG_FRESHNESS_MIN_RATIO", "0.6")
+        os.getenv("TREND_BLOG_FRESHNESS_MIN_RATIO", "0.4")
     )
     TREND_GENERIC_MIN_LIFT_PCT: float = float(
-        os.getenv("TREND_GENERIC_MIN_LIFT_PCT", "20")
+        os.getenv("TREND_GENERIC_MIN_LIFT_PCT", "10")
     )
     TREND_RANK_ONLY_MIN_LIFT_PCT: float = float(
         os.getenv("TREND_RANK_ONLY_MIN_LIFT_PCT", "20")
     )
     TREND_GENERIC_MIN_RECENT_BLOG_HITS: int = int(
-        os.getenv("TREND_GENERIC_MIN_RECENT_BLOG_HITS", "6")
+        os.getenv("TREND_GENERIC_MIN_RECENT_BLOG_HITS", "3")
     )
     TREND_GENERIC_REVIEW_KEYWORDS: list[str] = _env_csv_strings(
         "TREND_GENERIC_REVIEW_KEYWORDS",
