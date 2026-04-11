@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { access, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
@@ -57,14 +57,55 @@ const colors = {
   glassStroke: "#FFFFFF",
 };
 
+const FONT_CANDIDATES = [
+  {
+    regular: "C:/Windows/Fonts/malgun.ttf",
+    bold: "C:/Windows/Fonts/malgunbd.ttf",
+  },
+  {
+    regular: "/Library/Fonts/NanumGothic.ttf",
+    bold: "/Library/Fonts/NanumGothicBold.ttf",
+  },
+  {
+    regular: "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+    bold: "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+  },
+  {
+    regular: "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    bold: "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+  },
+];
+
 function toBase64(buffer) {
   return buffer.toString("base64");
 }
 
+async function ensureFileExists(filePath) {
+  await access(filePath);
+  return filePath;
+}
+
+async function resolveFontPair() {
+  for (const candidate of FONT_CANDIDATES) {
+    try {
+      await Promise.all([
+        ensureFileExists(candidate.regular),
+        ensureFileExists(candidate.bold),
+      ]);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error("No compatible font pair found for Instagram sample generator");
+}
+
 async function loadFonts() {
+  const fontPair = await resolveFontPair();
   const [regular, bold] = await Promise.all([
-    readFile("C:/Windows/Fonts/malgun.ttf"),
-    readFile("C:/Windows/Fonts/malgunbd.ttf"),
+    readFile(fontPair.regular),
+    readFile(fontPair.bold),
   ]);
 
   return `
