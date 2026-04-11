@@ -92,6 +92,10 @@ const SCORE_LABELS: Record<string, string> = {
   instagram: "IG",
 };
 
+function cleanDisplayKeyword(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -247,11 +251,12 @@ export default function AiReviewQueueTab() {
     }
   };
 
-  const applyKeyword = async (row: QueueRow) => {
+  const applyKeyword = async (row: QueueRow, approvedName = row.candidate_name) => {
+    const keywordName = cleanDisplayKeyword(approvedName);
     const existingKeyword = await supabase
       .from("keywords")
       .select("source")
-      .eq("keyword", row.candidate_name)
+      .eq("keyword", keywordName)
       .maybeSingle();
     if (existingKeyword.error) {
       throw existingKeyword.error;
@@ -259,7 +264,7 @@ export default function AiReviewQueueTab() {
 
     const { error } = await supabase.from("keywords").upsert(
       {
-        keyword: row.candidate_name,
+        keyword: keywordName,
         category: resolveKeywordCategory(row),
         is_active: true,
         source: existingKeyword.data?.source === "manual" ? "manual" : "discovered",
@@ -275,24 +280,32 @@ export default function AiReviewQueueTab() {
     }
   };
 
-  const applyTrend = async (row: QueueRow) => {
+  const applyTrend = async (row: QueueRow, approvedName = row.candidate_name) => {
     const payload = asRecord(row.payload);
     const now = new Date().toISOString();
     const breakdown = getScoreBreakdown(payload.score_breakdown);
-    const existingStatus =
-      getString(payload.existing_status) ||
-      (row.trend_id
+    const trendName = cleanDisplayKeyword(approvedName);
+    const existingNamedTrend =
+      row.trend_id && trendName === cleanDisplayKeyword(row.candidate_name)
         ? null
-        : (await supabase
+        : await supabase
             .from("trends")
-            .select("status")
-            .eq("name", row.candidate_name)
+            .select("id, status")
+            .eq("name", trendName)
             .limit(1)
-            .maybeSingle()).data?.status ??
-          null);
+            .maybeSingle();
+
+    if (existingNamedTrend?.error) {
+      throw existingNamedTrend.error;
+    }
+
+    const existingStatus =
+      getString(payload.existing_status) ??
+      existingNamedTrend?.data?.status ??
+      null;
 
     const trendData = {
-      name: row.candidate_name,
+      name: trendName,
       category: resolveKeywordCategory(row),
       status: resolveTrendStatus(existingStatus),
       detected_at: now,
@@ -308,7 +321,7 @@ export default function AiReviewQueueTab() {
       ai_consecutive_rejects: 0,
     };
 
-    if (row.trend_id) {
+    if (row.trend_id && (!existingNamedTrend?.data?.id || existingNamedTrend.data.id === row.trend_id)) {
       const { error } = await supabase
         .from("trends")
         .update(trendData)
@@ -320,22 +333,11 @@ export default function AiReviewQueueTab() {
       return;
     }
 
-    const existingResult = await supabase
-      .from("trends")
-      .select("id")
-      .eq("name", row.candidate_name)
-      .limit(1)
-      .maybeSingle();
-
-    if (existingResult.error) {
-      throw existingResult.error;
-    }
-
-    if (existingResult.data?.id) {
+    if (existingNamedTrend?.data?.id) {
       const { error } = await supabase
         .from("trends")
         .update(trendData)
-        .eq("id", existingResult.data.id);
+        .eq("id", existingNamedTrend.data.id);
 
       if (error) {
         throw error;
@@ -349,25 +351,30 @@ export default function AiReviewQueueTab() {
     }
   };
 
-  const approveRow = async (row: QueueRow) => {
+  const approveRow = async (row: QueueRow, approvedName = row.candidate_name) => {
+    const targetName = cleanDisplayKeyword(approvedName);
     setBusyId(row.id);
     setNotice(null);
     setNoticeTone("idle");
 
     try {
       if (row.item_type === "keyword") {
-        await applyKeyword(row);
+        await applyKeyword(row, targetName);
       } else {
-        await applyTrend(row);
+        await applyTrend(row, targetName);
       }
 
       await updateQueueStatus(row.id, "applied");
       setNoticeTone("success");
-      setNotice(
-        row.item_type === "keyword"
-          ? `${row.candidate_name} 키워드를 반영했습니다.`
-          : `${row.candidate_name} 트렌드를 반영했습니다.`
-      );
+      if (targetName !== cleanDisplayKeyword(row.candidate_name)) {
+        setNotice(`${row.candidate_name} 항목을 ${targetName} 대표명으로 반영했습니다.`);
+      } else {
+        setNotice(
+          row.item_type === "keyword"
+            ? `${row.candidate_name} 키워드를 반영했습니다.`
+            : `${row.candidate_name} 트렌드를 반영했습니다.`
+        );
+      }
       await fetchRows();
     } catch (error) {
       setNoticeTone("error");
@@ -481,6 +488,9 @@ export default function AiReviewQueueTab() {
             const evidenceSnippets = getStringArray(payload.evidence_snippets).slice(0, 2);
             const groundingSources = getStringArray(payload.grounding_sources).slice(0, 3);
             const canonicalKeyword = getString(payload.canonical_keyword);
+            const hasCanonicalApproval =
+              canonicalKeyword !== null &&
+              cleanDisplayKeyword(canonicalKeyword) !== cleanDisplayKeyword(row.candidate_name);
             const isPending = row.status === "pending";
 
             return (
@@ -599,7 +609,16 @@ export default function AiReviewQueueTab() {
                   </div>
 
                   {isPending && (
-                    <div className="flex flex-shrink-0 gap-2">
+                    <div className="flex flex-shrink-0 flex-col gap-2">
+                      {hasCanonicalApproval && canonicalKeyword && (
+                        <button
+                          onClick={() => void approveRow(row, canonicalKeyword)}
+                          disabled={busyId === row.id}
+                          className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          {busyId === row.id ? "처리 중..." : "AI 대표명 승인"}
+                        </button>
+                      )}
                       <button
                         onClick={() => void approveRow(row)}
                         disabled={busyId === row.id}
