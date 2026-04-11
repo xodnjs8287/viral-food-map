@@ -13,6 +13,10 @@ const FONT_CANDIDATES = [
     bold: "C:/Windows/Fonts/malgunbd.ttf",
   },
   {
+    regular: "/Library/Fonts/NanumGothic.ttf",
+    bold: "/Library/Fonts/NanumGothicBold.ttf",
+  },
+  {
     regular: "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
     bold: "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
   },
