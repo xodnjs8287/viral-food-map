@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "installCommand": "if [ -d frontend ]; then cd frontend && npm ci; else npm ci; fi",
-  "buildCommand": "if [ -d frontend ]; then cd frontend && npm run build && cd .. && rm -rf .next && cp -R frontend/.next .next && cp .next/routes-manifest.json .next/routes-manifest-deterministic.json; else npm run build && cp .next/routes-manifest.json .next/routes-manifest-deterministic.json; fi"
+  "installCommand": "bash scripts/vercel-install.sh",
+  "buildCommand": "bash scripts/vercel-build.sh"
 }
