@@ -6,6 +6,7 @@ import type {
   YomechuResultCount,
   YomechuSpinResponse,
 } from "./types";
+import type { NewProductSectorKey } from "./new-product-taxonomy";
 
 const DEFAULT_PRODUCTION_CRAWLER_BASE_URL =
   "https://silly-donnamarie-aiproject-41bab04f.koyeb.app";
@@ -199,6 +200,7 @@ export interface AutoRegisterNewProductSourceResponse {
     crawl_url: string;
     parser_type: string | null;
     source_origin: "code" | "admin";
+    discovery_metadata?: Record<string, unknown> | null;
   } | null;
   discovery: {
     matched_url: string;
@@ -522,6 +524,7 @@ export async function autoRegisterNewProductSource(
   payload: {
     brand: string;
     sourceType: "franchise" | "convenience";
+    sectorKey?: NewProductSectorKey | null;
   }
 ): Promise<AutoRegisterNewProductSourceResponse> {
   if (!CRAWLER_BASE_URL) {
@@ -534,6 +537,7 @@ export async function autoRegisterNewProductSource(
     body: JSON.stringify({
       brand: payload.brand,
       source_type: payload.sourceType,
+      sector_key: payload.sectorKey ?? null,
     }),
   });
 

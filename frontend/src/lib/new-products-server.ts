@@ -1,29 +1,53 @@
-import type { NewProduct, NewProductSource, NewProductSourceType } from "./types";
+import type { NewProduct, NewProductSource } from "./types";
+import type { NewProductSectorFilter, NewProductSectorKey } from "./new-product-taxonomy";
 import { createServerSupabaseClient } from "./supabase-server";
+import {
+  getNewProductBrandLabel,
+  getNewProductSectorKey,
+  getNewProductSectorLabel,
+} from "./new-product-taxonomy";
 
 export type NewProductsPeriod = "1d" | "3d" | "7d" | "30d" | "all";
-export type NewProductsSourceFilter = "all" | NewProductSourceType;
+
+export interface NewProductBrandOption {
+  key: string;
+  label: string;
+  count: number;
+}
 
 export interface NewProductListItem extends NewProduct {
   source: Pick<
     NewProductSource,
-    "id" | "source_key" | "title" | "brand" | "source_type" | "channel" | "site_url"
+    | "id"
+    | "source_key"
+    | "title"
+    | "brand"
+    | "source_type"
+    | "channel"
+    | "site_url"
+    | "discovery_metadata"
   > | null;
   effective_at: string;
   filter_at: string | null;
   date_label: "공개일" | "첫 수집";
+  brand_label: string;
+  sector_key: NewProductSectorKey;
+  sector_label: string;
 }
 
 export interface NewProductsPageData {
   products: NewProductListItem[];
-  sourceCounts: Record<NewProductSourceType, number>;
+  sectorCounts: Record<NewProductSectorKey, number>;
+  brandOptions: NewProductBrandOption[];
+  brandCount: number;
   totalCount: number;
   lastUpdated: string | null;
 }
 
 interface NewProductsPageOptions {
   period: NewProductsPeriod;
-  sourceType: NewProductsSourceFilter;
+  sector: NewProductSectorFilter;
+  brand: string | null;
 }
 
 const PERIOD_DAYS: Record<Exclude<NewProductsPeriod, "all">, number> = {
@@ -57,19 +81,69 @@ function sortByEffectiveDateDesc(a: NewProductListItem, b: NewProductListItem) {
   );
 }
 
+function createEmptySectorCounts(): Record<NewProductSectorKey, number> {
+  return {
+    cafe: 0,
+    burger: 0,
+    pizza: 0,
+    sandwich: 0,
+    other: 0,
+  };
+}
+
+function getResolvedBrand(
+  product: Pick<NewProduct, "brand"> & {
+    source?: Pick<NewProductSource, "brand"> | null;
+  }
+) {
+  return product.source?.brand?.trim() || product.brand.trim();
+}
+
+function buildBrandOptions(products: NewProductListItem[]): NewProductBrandOption[] {
+  const counts = new Map<string, { label: string; count: number }>();
+
+  products.forEach((product) => {
+    const current = counts.get(product.brand);
+
+    if (current) {
+      current.count += 1;
+      return;
+    }
+
+    counts.set(product.brand, {
+      label: product.brand_label,
+      count: 1,
+    });
+  });
+
+  return Array.from(counts.entries())
+    .map(([key, value]) => ({
+      key,
+      label: value.label,
+      count: value.count,
+    }))
+    .sort((a, b) => {
+      if (b.count !== a.count) {
+        return b.count - a.count;
+      }
+
+      return a.label.localeCompare(b.label, "ko-KR");
+    });
+}
+
 export async function getNewProductsPageData({
   period,
-  sourceType,
+  sector,
+  brand,
 }: NewProductsPageOptions): Promise<NewProductsPageData> {
   const supabase = createServerSupabaseClient();
 
   if (!supabase) {
     return {
       products: [],
-      sourceCounts: {
-        convenience: 0,
-        franchise: 0,
-      },
+      sectorCounts: createEmptySectorCounts(),
+      brandOptions: [],
+      brandCount: 0,
       totalCount: 0,
       lastUpdated: null,
     };
@@ -78,7 +152,7 @@ export async function getNewProductsPageData({
   const { data } = await supabase
     .from("new_products")
     .select(
-      "*, source:new_product_sources(id, source_key, title, brand, source_type, channel, site_url)"
+      "*, source:new_product_sources(id, source_key, title, brand, source_type, channel, site_url, discovery_metadata)"
     )
     .eq("status", "visible")
     .eq("is_food", true)
@@ -92,23 +166,36 @@ export async function getNewProductsPageData({
   const rows = ((data as (NewProduct & {
     source?: Pick<
       NewProductSource,
-      "id" | "source_key" | "title" | "brand" | "source_type" | "channel" | "site_url"
+      | "id"
+      | "source_key"
+      | "title"
+      | "brand"
+      | "source_type"
+      | "channel"
+      | "site_url"
+      | "discovery_metadata"
     > | null;
-  })[]) ?? []);
+  })[]) ?? []).filter((product) => product.source_type === "franchise");
 
   const mapped = rows
-    .map((product) => ({
-      ...product,
-      source: product.source ?? null,
-      effective_at: getEffectiveDate(product),
-      filter_at: getFilterDate(product),
-      date_label: getDateLabel(product),
-    }))
-    .filter((product) => {
-      if (sourceType !== "all" && product.source_type !== sourceType) {
-        return false;
-      }
+    .map((product) => {
+      const resolvedBrand = getResolvedBrand(product);
+      const sourceMetadata = product.source?.discovery_metadata;
+      const sectorKey = getNewProductSectorKey(resolvedBrand, sourceMetadata);
 
+      return {
+        ...product,
+        source: product.source ?? null,
+        brand: resolvedBrand,
+        brand_label: getNewProductBrandLabel(resolvedBrand, sourceMetadata),
+        effective_at: getEffectiveDate(product),
+        filter_at: getFilterDate(product),
+        date_label: getDateLabel(product),
+        sector_key: sectorKey,
+        sector_label: getNewProductSectorLabel(sectorKey),
+      };
+    })
+    .filter((product) => {
       if (cutoffMs === null) {
         return true;
       }
@@ -118,21 +205,44 @@ export async function getNewProductsPageData({
       }
 
       return new Date(product.filter_at).getTime() >= cutoffMs;
+    });
+
+  const sectorCounts = mapped.reduce((counts, product) => {
+    counts[product.sector_key] += 1;
+    return counts;
+  }, createEmptySectorCounts());
+
+  const filteredBySector =
+    sector === "all"
+      ? mapped
+      : mapped.filter((product) => product.sector_key === sector);
+
+  const brandOptions = sector === "all" ? [] : buildBrandOptions(filteredBySector);
+  const selectedBrand =
+    sector === "all" || !brand
+      ? null
+      : brandOptions.some((option) => option.key === brand)
+      ? brand
+      : null;
+
+  const products = filteredBySector
+    .filter((product) => {
+      if (!selectedBrand) {
+        return true;
+      }
+
+      return product.brand === selectedBrand;
     })
     .sort(sortByEffectiveDateDesc);
 
-  const sourceCounts = mapped.reduce(
-    (counts, product) => {
-      counts[product.source_type] += 1;
-      return counts;
-    },
-    { convenience: 0, franchise: 0 } satisfies Record<NewProductSourceType, number>
-  );
+  const brandCount = new Set(mapped.map((product) => product.brand)).size;
 
   return {
-    products: mapped,
-    sourceCounts,
-    totalCount: mapped.length,
+    products,
+    sectorCounts,
+    brandOptions,
+    brandCount,
+    totalCount: products.length,
     lastUpdated: rows[0]?.last_seen_at ?? null,
   };
 }

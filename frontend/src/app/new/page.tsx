@@ -4,19 +4,24 @@ import type { Metadata } from "next";
 import BottomNav from "@/components/BottomNav";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import type { NewProductSectorKey } from "@/lib/new-product-taxonomy";
 import { getNewProductsPageData } from "@/lib/new-products-server";
 import { buildMetadata } from "@/lib/seo";
 
 import NewProductsClient from "./NewProductsClient";
 import {
   buildFilterHref,
+  normalizeBrand,
   normalizePeriod,
-  normalizeSource,
+  normalizeSector,
+  SECTOR_OPTIONS,
 } from "./filters";
 
 interface NewProductsPageProps {
   searchParams?: Promise<{
     period?: string;
+    sector?: string;
+    brand?: string;
     source?: string;
   }>;
 }
@@ -24,9 +29,9 @@ interface NewProductsPageProps {
 export const metadata: Metadata = buildMetadata({
   title: "신상 음식 모아보기",
   description:
-    "편의점과 프랜차이즈의 공식 채널에서 음식 위주 신상과 신메뉴를 기간별로 모아봅니다.",
+    "프랜차이즈 공식 채널의 신상 메뉴를 업종과 브랜드별로 모아봅니다.",
   path: "/new",
-  keywords: ["신상 음식", "편의점 신상", "프랜차이즈 신메뉴", "신상 메뉴"],
+  keywords: ["신상 음식", "프랜차이즈 신메뉴", "브랜드 신상", "신상 메뉴"],
 });
 
 function formatUpdatedAt(value: string | null) {
@@ -54,8 +59,17 @@ export default async function NewProductsPage({
 }: NewProductsPageProps) {
   const resolvedSearchParams = (await searchParams) ?? {};
   const period = normalizePeriod(resolvedSearchParams.period);
-  const source = normalizeSource(resolvedSearchParams.source);
-  const pageData = await getNewProductsPageData({ period, sourceType: source });
+  const sector = normalizeSector(resolvedSearchParams.sector);
+  const brand = normalizeBrand(resolvedSearchParams.brand);
+  const pageData = await getNewProductsPageData({ period, sector, brand });
+  const visibleSectorHighlights = SECTOR_OPTIONS.filter(
+    (
+      option
+    ): option is {
+      key: NewProductSectorKey;
+      label: string;
+    } => option.key !== "all" && pageData.sectorCounts[option.key] > 0
+  ).slice(0, 3);
 
   return (
     <>
@@ -69,21 +83,26 @@ export default async function NewProductsPage({
                 공식 신상 {pageData.totalCount}개
               </span>
               <span className="rounded-full bg-white/15 px-2.5 py-1">
-                편의점 {pageData.sourceCounts.convenience}개
+                브랜드 {pageData.brandCount}곳
               </span>
-              <span className="rounded-full bg-white/15 px-2.5 py-1">
-                프랜차이즈 {pageData.sourceCounts.franchise}개
-              </span>
+              {visibleSectorHighlights.map((option) => (
+                <span
+                  key={option.key}
+                  className="rounded-full bg-white/15 px-2.5 py-1"
+                >
+                  {option.label} {pageData.sectorCounts[option.key]}개
+                </span>
+              ))}
             </div>
 
             <p className="mt-4 text-xl font-bold leading-snug">
-              편의점과 프랜차이즈 신상,
+              프랜차이즈 신상,
               <br />
-              한 화면에서 기간별로 확인
+              업종과 브랜드별로 빠르게 확인
             </p>
 
             <p className="mt-2 text-sm leading-relaxed text-white/85">
-              공식 상품 페이지와 브랜드 이벤트 채널에서 음식 위주 신상만 골라서
+              공식 상품 페이지와 브랜드 채널에서 음식 위주 신상만 골라서
               보여드립니다.
             </p>
 
@@ -95,7 +114,7 @@ export default async function NewProductsPage({
                 홈 트렌드 보기
               </Link>
               <Link
-                href={buildFilterHref("all", source)}
+                href={buildFilterHref("all", sector, brand)}
                 className="rounded-xl border border-white/30 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
               >
                 전체 기간 보기
@@ -111,9 +130,12 @@ export default async function NewProductsPage({
         <NewProductsClient
           initialProducts={pageData.products}
           totalCount={pageData.totalCount}
-          sourceCounts={pageData.sourceCounts}
+          sectorCounts={pageData.sectorCounts}
+          brandOptions={pageData.brandOptions}
+          brandCount={pageData.brandCount}
           period={period}
-          source={source}
+          sector={sector}
+          brand={brand}
         />
 
         <Footer />

@@ -3,16 +3,10 @@
 import Image from "next/image";
 
 import type { NewProductListItem } from "@/lib/new-products-server";
-import type { NewProductSourceType } from "@/lib/types";
 
 interface NewProductCardProps {
   product: NewProductListItem;
 }
-
-const SOURCE_TYPE_LABELS: Record<NewProductSourceType, string> = {
-  convenience: "편의점",
-  franchise: "프랜차이즈",
-};
 
 function formatDateLabel(value: string) {
   const parsed = new Date(value);
@@ -32,10 +26,10 @@ function buildSummary(product: NewProductListItem) {
   }
 
   if (product.category) {
-    return `${product.brand} 공식 채널에서 수집한 ${product.category} 신상 정보입니다.`;
+    return `${product.brand_label} 공식 채널에서 수집한 ${product.category} 신상 정보입니다.`;
   }
 
-  return `${product.brand} 공식 채널에서 수집한 신상 정보입니다.`;
+  return `${product.brand_label} 공식 채널에서 수집한 신상 정보입니다.`;
 }
 
 export default function NewProductCard({ product }: NewProductCardProps) {
@@ -66,7 +60,7 @@ export default function NewProductCard({ product }: NewProductCardProps) {
 
         <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
           <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-gray-700">
-            {SOURCE_TYPE_LABELS[product.source_type]}
+            {product.sector_label}
           </span>
           {product.is_limited ? (
             <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[11px] font-semibold text-amber-950">
@@ -77,7 +71,7 @@ export default function NewProductCard({ product }: NewProductCardProps) {
 
         <div className="absolute right-3 top-3">
           <span className="rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white">
-            {product.brand}
+            {product.brand_label}
           </span>
         </div>
 
@@ -86,7 +80,7 @@ export default function NewProductCard({ product }: NewProductCardProps) {
             {product.name}
           </h2>
           <p className="mt-1 text-xs text-white/80">
-            {product.source?.title || product.brand}
+            {product.source?.title || product.brand_label}
           </p>
         </div>
       </div>
@@ -113,7 +107,7 @@ export default function NewProductCard({ product }: NewProductCardProps) {
         <div className="flex items-center justify-between gap-3 text-xs text-gray-400">
           <div className="min-w-0 flex-1">
             <p className="truncate">
-              공식 출처: {product.source?.title || product.brand}
+              공식 출처: {product.source?.title || product.brand_label}
             </p>
           </div>
 

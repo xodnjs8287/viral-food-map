@@ -6,30 +6,36 @@ import { Haptics, ImpactStyle } from "@capacitor/haptics";
 
 import NewProductCard from "@/components/NewProductCard";
 import type {
+  NewProductBrandOption,
   NewProductListItem,
   NewProductsPeriod,
-  NewProductsSourceFilter,
 } from "@/lib/new-products-server";
-import type { NewProductSourceType } from "@/lib/types";
+import type {
+  NewProductSectorFilter,
+  NewProductSectorKey,
+} from "@/lib/new-product-taxonomy";
 
 import {
   PERIOD_OPTIONS,
-  SOURCE_OPTIONS,
+  SECTOR_OPTIONS,
   buildFilterHref,
   getPeriodLabel,
-  getSourceLabel,
+  getSectorLabel,
 } from "./filters";
 
 const PAGE_SIZE = 12;
 
-type DropdownKey = "period" | "source";
+type DropdownKey = "period";
 
 interface NewProductsClientProps {
   initialProducts: NewProductListItem[];
   totalCount: number;
-  sourceCounts: Record<NewProductSourceType, number>;
+  sectorCounts: Record<NewProductSectorKey, number>;
+  brandOptions: NewProductBrandOption[];
+  brandCount: number;
   period: NewProductsPeriod;
-  source: NewProductsSourceFilter;
+  sector: NewProductSectorFilter;
+  brand: string | null;
 }
 
 interface FilterDropdownProps<T extends string> {
@@ -150,9 +156,12 @@ function FilterDropdown<T extends string>({
 export default function NewProductsClient({
   initialProducts,
   totalCount,
-  sourceCounts,
+  sectorCounts,
+  brandOptions,
+  brandCount,
   period,
-  source,
+  sector,
+  brand,
 }: NewProductsClientProps) {
   const router = useRouter();
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -163,7 +172,7 @@ export default function NewProductsClient({
   // 필터가 바뀌면 페이지네이션 리셋
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [period, source]);
+  }, [period, sector, brand]);
 
   const hasMore = visibleCount < initialProducts.length;
 
@@ -189,14 +198,27 @@ export default function NewProductsClient({
 
   const applyFilter = (
     nextPeriod: NewProductsPeriod,
-    nextSource: NewProductsSourceFilter
+    nextSector: NewProductSectorFilter,
+    nextBrand: string | null = brand
   ) => {
     Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
     setOpenDropdown(null);
-    router.push(buildFilterHref(nextPeriod, nextSource), { scroll: false });
+    router.push(buildFilterHref(nextPeriod, nextSector, nextBrand), {
+      scroll: false,
+    });
   };
 
   const visibleProducts = initialProducts.slice(0, visibleCount);
+  const sectorSummary = SECTOR_OPTIONS.filter(
+    (
+      option
+    ): option is {
+      key: NewProductSectorKey;
+      label: string;
+    } => option.key !== "all" && sectorCounts[option.key] > 0
+  );
+  const selectedBrandLabel =
+    brandOptions.find((option) => option.key === brand)?.label ?? brand;
 
   return (
     <>
@@ -206,13 +228,14 @@ export default function NewProductsClient({
             <div>
               <h2 className="font-bold text-gray-900">필터</h2>
               <p className="mt-1 text-xs leading-relaxed text-gray-500">
-                기간과 출처를 바꾸면 공식 채널 기준 신상만 다시 정리해
-                보여줍니다.
+                기간별 프랜차이즈 신상을 업종과 브랜드 기준으로 다시
+                정리해 보여줍니다.
               </p>
             </div>
-            <span className="shrink-0 text-xs font-medium text-gray-400">
-              {totalCount}개 노출
-            </span>
+            <div className="shrink-0 text-right text-xs text-gray-400">
+              <p>{totalCount}개 노출</p>
+              <p className="mt-1">브랜드 {brandCount}곳</p>
+            </div>
           </div>
 
           <div className="flex items-start gap-3">
@@ -227,27 +250,97 @@ export default function NewProductsClient({
                   current === "period" ? null : current
                 )
               }
-              onSelect={(next) => applyFilter(next, source)}
-            />
-            <FilterDropdown
-              label="출처"
-              value={source}
-              options={SOURCE_OPTIONS}
-              open={openDropdown === "source"}
-              onOpen={() => setOpenDropdown("source")}
-              onClose={() =>
-                setOpenDropdown((current) =>
-                  current === "source" ? null : current
-                )
-              }
-              onSelect={(next) => applyFilter(period, next)}
+              onSelect={(next) => applyFilter(next, sector, brand)}
             />
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-gray-400">
-            <span>편의점 {sourceCounts.convenience}개</span>
-            <span aria-hidden="true">·</span>
-            <span>프랜차이즈 {sourceCounts.franchise}개</span>
+          <div className="mt-4">
+            <p className="text-xs font-semibold text-gray-500">업종</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {SECTOR_OPTIONS.map((option) => {
+                const active = sector === option.key;
+                const count =
+                  option.key === "all"
+                    ? Object.values(sectorCounts).reduce(
+                        (sum, value) => sum + value,
+                        0
+                      )
+                    : sectorCounts[option.key];
+
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => applyFilter(period, option.key, null)}
+                    className={`rounded-full px-3 py-2 text-xs font-semibold transition-colors ${
+                      active
+                        ? "bg-primary text-white"
+                        : "bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
+                  >
+                    {option.label} {count}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold text-gray-500">브랜드</p>
+              {sector !== "all" ? (
+                <span className="text-[11px] text-gray-400">
+                  {brandOptions.length}개 브랜드
+                </span>
+              ) : null}
+            </div>
+
+            {sector === "all" ? (
+              <p className="mt-2 rounded-xl bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-500">
+                업종을 먼저 고르면 스타벅스, 맥도날드처럼 브랜드별로 더 빠르게
+                좁혀볼 수 있어요.
+              </p>
+            ) : brandOptions.length === 0 ? (
+              <p className="mt-2 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                이 업종에는 아직 노출 중인 브랜드가 없습니다.
+              </p>
+            ) : (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => applyFilter(period, sector, null)}
+                  className={`rounded-full px-3 py-2 text-xs font-semibold transition-colors ${
+                    !brand
+                      ? "bg-gray-900 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  전체 브랜드
+                </button>
+                {brandOptions.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => applyFilter(period, sector, option.key)}
+                    className={`rounded-full px-3 py-2 text-xs font-semibold transition-colors ${
+                      brand === option.key
+                        ? "bg-gray-900 text-white"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                  >
+                    {option.label} {option.count}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-gray-400">
+            {sectorSummary.map((option) => (
+              <span key={option.key}>
+                {option.label} {sectorCounts[option.key]}개
+              </span>
+            ))}
           </div>
         </div>
       </section>
@@ -257,7 +350,8 @@ export default function NewProductsClient({
           <div>
             <h3 className="font-bold text-gray-900">신상 목록</h3>
             <p className="mt-1 text-xs text-gray-500">
-              {getPeriodLabel(period)} · {getSourceLabel(source)} 기준
+              {getPeriodLabel(period)} · {getSectorLabel(sector)} 기준
+              {selectedBrandLabel ? ` · ${selectedBrandLabel}` : ""}
             </p>
           </div>
           <span className="text-xs text-gray-400">{totalCount}개</span>
@@ -270,8 +364,8 @@ export default function NewProductsClient({
               조건에 맞는 신상이 아직 없습니다
             </p>
             <p className="mt-2 text-sm leading-relaxed text-gray-500">
-              기간을 넓히거나 출처 필터를 바꿔보세요. 공식 채널 기준 데이터만
-              보여드립니다.
+              기간을 넓히거나 업종, 브랜드 필터를 바꿔보세요. 공식 채널 기준
+              데이터만 보여드립니다.
             </p>
           </div>
         ) : (

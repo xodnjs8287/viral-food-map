@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 class AutoRegisterSourceRequest(BaseModel):
     brand: str = Field(min_length=1, max_length=80)
     source_type: Literal["franchise", "convenience"] = "franchise"
+    sector_key: Literal["cafe", "burger", "pizza", "sandwich", "other"] | None = None
 
 
 def _build_source_payload(source) -> dict:
@@ -62,6 +63,7 @@ async def auto_register_new_product_source(
         discovered = await discover_new_product_source(
             brand=request.brand,
             source_type=request.source_type,
+            sector_key=request.sector_key,
         )
     except ValueError as exc:
         raise HTTPException(

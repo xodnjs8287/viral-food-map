@@ -8,6 +8,12 @@ import {
   type AutoRegisterNewProductSourceResponse,
   type NewProductsRefreshStatus,
 } from "@/lib/crawler";
+import {
+  NEW_PRODUCT_SECTOR_OPTIONS,
+  getNewProductSectorKey,
+  getNewProductSectorLabel,
+  type NewProductSectorKey,
+} from "@/lib/new-product-taxonomy";
 import { supabase } from "@/lib/supabase";
 import type {
   NewProduct,
@@ -39,6 +45,15 @@ const STATUS_LABELS: Record<NewProductStatus, string> = {
   expired: "만료",
 };
 
+const FRANCHISE_SECTOR_OPTIONS = NEW_PRODUCT_SECTOR_OPTIONS.filter(
+  (
+    option
+  ): option is {
+    key: NewProductSectorKey;
+    label: string;
+  } => option.key !== "all"
+);
+
 function formatDateTime(value: string | null) {
   if (!value) {
     return "없음";
@@ -69,6 +84,25 @@ function buildAutoRegisterMessage(
   return `${result.message} 미리보기 ${result.preview.fetched_products}건입니다.`;
 }
 
+function getSourceSectorLabel(
+  source:
+    | {
+        brand: string;
+        source_type: NewProductSource["source_type"];
+        discovery_metadata: Record<string, unknown> | null;
+      }
+    | null
+    | undefined
+) {
+  if (!source || source.source_type !== "franchise") {
+    return null;
+  }
+
+  return getNewProductSectorLabel(
+    getNewProductSectorKey(source.brand, source.discovery_metadata)
+  );
+}
+
 export default function NewProductsTab() {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [sources, setSources] = useState<NewProductSource[]>([]);
@@ -83,6 +117,7 @@ export default function NewProductsTab() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [brandInput, setBrandInput] = useState("");
   const [autoSourceType, setAutoSourceType] = useState<NewProductSourceType>("franchise");
+  const [autoSectorKey, setAutoSectorKey] = useState<NewProductSectorKey>("other");
   const [autoRegisterResult, setAutoRegisterResult] =
     useState<AutoRegisterNewProductSourceResponse | null>(null);
 
@@ -169,6 +204,7 @@ export default function NewProductsTab() {
       const result = await autoRegisterNewProductSource(accessToken, {
         brand: normalizedBrand,
         sourceType: autoSourceType,
+        sectorKey: autoSourceType === "franchise" ? autoSectorKey : null,
       });
 
       setAutoRegisterResult(result);
@@ -254,7 +290,7 @@ export default function NewProductsTab() {
         <div className="mb-4">
           <h3 className="text-sm font-semibold text-gray-900">브랜드 자동 등록</h3>
           <p className="mt-1 text-xs text-gray-400">
-            브랜드명만 입력하면 공식 신상 채널을 찾아 parser를 연결하고 바로 수집합니다.
+            브랜드명과 업종을 입력하면 공식 신상 채널을 찾아 parser를 연결하고 바로 수집합니다.
           </p>
         </div>
         <div className="flex flex-col gap-3 lg:flex-row">
@@ -274,6 +310,21 @@ export default function NewProductsTab() {
             <option value="franchise">프랜차이즈</option>
             <option value="convenience">편의점</option>
           </select>
+          {autoSourceType === "franchise" ? (
+            <select
+              value={autoSectorKey}
+              onChange={(event) =>
+                setAutoSectorKey(event.target.value as NewProductSectorKey)
+              }
+              className="rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 outline-none transition-colors focus:border-primary"
+            >
+              {FRANCHISE_SECTOR_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <button
             onClick={() => {
               void handleAutoRegister();
@@ -291,6 +342,24 @@ export default function NewProductsTab() {
               <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">
                 {SOURCE_LABELS[autoRegisterResult.source?.source_type || autoSourceType]}
               </span>
+              {(autoRegisterResult.source?.source_type || autoSourceType) === "franchise" ? (
+                <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600">
+                  {getSourceSectorLabel(
+                    autoRegisterResult.source
+                      ? {
+                          brand: autoRegisterResult.source.brand,
+                          source_type: autoRegisterResult.source.source_type,
+                          discovery_metadata:
+                            autoRegisterResult.source.discovery_metadata ?? null,
+                        }
+                      : {
+                          brand: brandInput,
+                          source_type: autoSourceType,
+                          discovery_metadata: { sector_key: autoSectorKey },
+                        }
+                  )}
+                </span>
+              ) : null}
               <span className="rounded-full bg-gray-900 px-2 py-1 text-[11px] font-semibold text-white">
                 {autoRegisterResult.source?.parser_type || "parser 없음"}
               </span>
@@ -512,7 +581,12 @@ export default function NewProductsTab() {
                     <div>
                       <p className="text-sm font-medium text-gray-900">{source.title}</p>
                       <p className="mt-1 text-xs text-gray-400">
-                        {SOURCE_LABELS[source.source_type]} · {source.channel}
+                        {SOURCE_LABELS[source.source_type]}
+                        {getSourceSectorLabel(source)
+                          ? ` · ${getSourceSectorLabel(source)}`
+                          : ""}
+                        {" · "}
+                        {source.channel}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">

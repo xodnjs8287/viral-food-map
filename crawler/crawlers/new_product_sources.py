@@ -45,6 +45,17 @@ class NewProductSourceDefinition:
     discovery_metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def build_source_taxonomy(
+    sector_key: str,
+    *,
+    display_brand: str | None = None,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {"sector_key": sector_key}
+    if display_brand:
+        metadata["display_brand"] = display_brand
+    return metadata
+
+
 # 신규 브랜드는 가능하면 이 파일에만 추가해서 관리한다.
 # parser_type은 new_products.py의 핸들러와 매핑되고,
 # 같은 템플릿이면 parser_config만 바꿔서 등록하면 된다.
@@ -74,6 +85,10 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
         parser_config={
             "max_items": 40,
         },
+        discovery_metadata=build_source_taxonomy(
+            "other",
+            display_brand="롯데잇츠",
+        ),
     ),
     NewProductSourceDefinition(
         source_key="paikdabang_news",
@@ -98,6 +113,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
             "detail_image_markers": ("/wp-content/uploads/",),
             "max_items": 40,
         },
+        discovery_metadata=build_source_taxonomy("cafe"),
     ),
     NewProductSourceDefinition(
         source_key="kfc_new_menu",
@@ -111,6 +127,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
         parser_config={
             "max_items": 20,
         },
+        discovery_metadata=build_source_taxonomy("burger"),
     ),
     NewProductSourceDefinition(
         source_key="momstouch_new_menu",
@@ -135,6 +152,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
             "published_at_source": "asset_upload_unix",
             "image_timestamp_pattern": r"/(\d{10})-[A-Z0-9]+\.",
         },
+        discovery_metadata=build_source_taxonomy("burger"),
     ),
     NewProductSourceDefinition(
         source_key="dominos_new_menu",
@@ -166,6 +184,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
             "published_at_source": "asset_upload_ymd",
             "image_timestamp_pattern": r"/(\d{8})_[A-Za-z0-9]+\.",
         },
+        discovery_metadata=build_source_taxonomy("pizza"),
     ),
     NewProductSourceDefinition(
         source_key="mcdonalds_promotion",
@@ -179,6 +198,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
         parser_config={
             "max_items": 20,
         },
+        discovery_metadata=build_source_taxonomy("burger"),
     ),
     NewProductSourceDefinition(
         source_key="burgerking_event_feed",
@@ -253,6 +273,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
             ),
             "max_items": 40,
         },
+        discovery_metadata=build_source_taxonomy("burger"),
     ),
     NewProductSourceDefinition(
         source_key="subway_event",
@@ -277,6 +298,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
             "allow_food_names_without_keyword": True,
             "short_name_max_length": 18,
         },
+        discovery_metadata=build_source_taxonomy("sandwich"),
     ),
     NewProductSourceDefinition(
         source_key="composecoffee_event",
@@ -298,6 +320,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
             "summary_fallback": "{brand} 공식 이벤트",
             "max_items": 40,
         },
+        discovery_metadata=build_source_taxonomy("cafe"),
     ),
     NewProductSourceDefinition(
         source_key="gongcha_event_list",
@@ -319,6 +342,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
             "summary_fallback": "{brand} 공식 이벤트",
             "max_items": 40,
         },
+        discovery_metadata=build_source_taxonomy("cafe"),
     ),
     NewProductSourceDefinition(
         source_key="puradak_event_list",
@@ -397,6 +421,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
             "end_date_format": "compact",
             "published_at_source": "explicit",
         },
+        discovery_metadata=build_source_taxonomy("cafe"),
     ),
     NewProductSourceDefinition(
         source_key="mega_seasonal_menu",
@@ -410,5 +435,6 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
         parser_config={
             "max_items": 12,
         },
+        discovery_metadata=build_source_taxonomy("cafe"),
     ),
 )

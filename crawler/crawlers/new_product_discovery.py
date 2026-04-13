@@ -84,6 +84,18 @@ class DiscoveredNewProductSource:
     notes: list[str]
 
 
+def _apply_manual_sector(
+    source: NewProductSourceDefinition,
+    sector_key: str | None,
+) -> NewProductSourceDefinition:
+    if not sector_key:
+        return source
+
+    source.discovery_metadata = deepcopy(source.discovery_metadata)
+    source.discovery_metadata["sector_key"] = sector_key
+    return source
+
+
 def _normalize_brand_key(value: str) -> str:
     return re.sub(r"[^0-9a-z가-힣]+", "", value.lower())
 
@@ -611,6 +623,7 @@ async def discover_new_product_source(
     *,
     brand: str,
     source_type: str = "franchise",
+    sector_key: str | None = None,
 ) -> DiscoveredNewProductSource:
     normalized_brand = brand.strip()
     if not normalized_brand:
@@ -619,7 +632,7 @@ async def discover_new_product_source(
     direct_match = _looks_like_builtin_brand(normalized_brand, source_type)
     if direct_match:
         return DiscoveredNewProductSource(
-            source=direct_match,
+            source=_apply_manual_sector(direct_match, sector_key),
             matched_url=direct_match.crawl_url,
             official_site_url=direct_match.site_url,
             confidence=0.99,
@@ -650,7 +663,7 @@ async def discover_new_product_source(
             if builtin_match:
                 source, matched_url, notes = builtin_match
                 return DiscoveredNewProductSource(
-                    source=source,
+                    source=_apply_manual_sector(source, sector_key),
                     matched_url=matched_url,
                     official_site_url=source.site_url,
                     confidence=0.92,
@@ -668,7 +681,7 @@ async def discover_new_product_source(
             )
             if generic_board_source:
                 return DiscoveredNewProductSource(
-                    source=generic_board_source,
+                    source=_apply_manual_sector(generic_board_source, sector_key),
                     matched_url=candidate_url,
                     official_site_url=candidate_url,
                     confidence=0.74,
@@ -686,7 +699,7 @@ async def discover_new_product_source(
             )
             if generic_grid_source:
                 return DiscoveredNewProductSource(
-                    source=generic_grid_source,
+                    source=_apply_manual_sector(generic_grid_source, sector_key),
                     matched_url=candidate_url,
                     official_site_url=candidate_url,
                     confidence=0.76,
@@ -704,7 +717,7 @@ async def discover_new_product_source(
             )
             if generic_event_source:
                 return DiscoveredNewProductSource(
-                    source=generic_event_source,
+                    source=_apply_manual_sector(generic_event_source, sector_key),
                     matched_url=candidate_url,
                     official_site_url=generic_event_source.site_url,
                     confidence=0.78,
@@ -722,7 +735,7 @@ async def discover_new_product_source(
             )
             if generic_media_event_source:
                 return DiscoveredNewProductSource(
-                    source=generic_media_event_source,
+                    source=_apply_manual_sector(generic_media_event_source, sector_key),
                     matched_url=candidate_url,
                     official_site_url=generic_media_event_source.site_url,
                     confidence=0.75,
@@ -744,7 +757,7 @@ async def discover_new_product_source(
                 if builtin_internal_match:
                     source, matched_url, notes = builtin_internal_match
                     return DiscoveredNewProductSource(
-                        source=source,
+                        source=_apply_manual_sector(source, sector_key),
                         matched_url=matched_url,
                         official_site_url=source.site_url,
                         confidence=0.9,
@@ -762,7 +775,7 @@ async def discover_new_product_source(
                 )
                 if generic_internal_source:
                     return DiscoveredNewProductSource(
-                        source=generic_internal_source,
+                        source=_apply_manual_sector(generic_internal_source, sector_key),
                         matched_url=internal_url,
                         official_site_url=candidate_url,
                         confidence=0.72,
@@ -780,7 +793,10 @@ async def discover_new_product_source(
                 )
                 if generic_internal_grid_source:
                     return DiscoveredNewProductSource(
-                        source=generic_internal_grid_source,
+                        source=_apply_manual_sector(
+                            generic_internal_grid_source,
+                            sector_key,
+                        ),
                         matched_url=internal_url,
                         official_site_url=candidate_url,
                         confidence=0.74,
@@ -798,7 +814,10 @@ async def discover_new_product_source(
                 )
                 if generic_internal_event_source:
                     return DiscoveredNewProductSource(
-                        source=generic_internal_event_source,
+                        source=_apply_manual_sector(
+                            generic_internal_event_source,
+                            sector_key,
+                        ),
                         matched_url=internal_url,
                         official_site_url=generic_internal_event_source.site_url,
                         confidence=0.76,
@@ -816,7 +835,10 @@ async def discover_new_product_source(
                 )
                 if generic_internal_media_event_source:
                     return DiscoveredNewProductSource(
-                        source=generic_internal_media_event_source,
+                        source=_apply_manual_sector(
+                            generic_internal_media_event_source,
+                            sector_key,
+                        ),
                         matched_url=internal_url,
                         official_site_url=generic_internal_media_event_source.site_url,
                         confidence=0.73,
