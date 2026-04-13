@@ -211,7 +211,8 @@ export interface AutoRegisterNewProductSourceResponse {
     fetched_products: number;
     preview_items: AutoRegisterNewProductSourcePreviewItem[];
   };
-  summary: NewProductsRefreshSummary;
+  summary: NewProductsRefreshSummary | null;
+  crawl_error?: string | null;
 }
 
 export interface InstagramPublishedTrend {

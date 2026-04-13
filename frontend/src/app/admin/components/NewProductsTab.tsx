@@ -56,6 +56,19 @@ function getEffectiveAt(product: Pick<NewProduct, "published_at" | "first_seen_a
   return product.published_at || product.first_seen_at;
 }
 
+function buildAutoRegisterMessage(
+  result: AutoRegisterNewProductSourceResponse,
+  fallbackBrand: string
+) {
+  const brand = result.source?.brand || fallbackBrand;
+
+  if (result.summary) {
+    return `${brand} 소스를 등록했습니다. 미리보기 ${result.preview.fetched_products}건, 반영 ${result.summary.visible_products}건입니다.`;
+  }
+
+  return `${result.message} 미리보기 ${result.preview.fetched_products}건입니다.`;
+}
+
 export default function NewProductsTab() {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [sources, setSources] = useState<NewProductSource[]>([]);
@@ -160,9 +173,7 @@ export default function NewProductsTab() {
 
       setAutoRegisterResult(result);
       setRequestStatus("success");
-      setRequestMessage(
-        `${result.source?.brand || normalizedBrand} 소스를 등록했습니다. 미리보기 ${result.preview.fetched_products}건, 반영 ${result.summary.visible_products}건입니다.`
-      );
+      setRequestMessage(buildAutoRegisterMessage(result, normalizedBrand));
       setBrandInput("");
       await loadData();
     } catch (error) {
@@ -295,6 +306,11 @@ export default function NewProductsTab() {
               <p>매칭 URL: {autoRegisterResult.discovery.matched_url}</p>
               <p>미리보기 수집: {autoRegisterResult.preview.fetched_products}건</p>
             </div>
+            {autoRegisterResult.crawl_error ? (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                즉시 수집은 실패했습니다. 소스 등록은 완료되어 다음 자동 수집에서 다시 시도합니다.
+              </div>
+            ) : null}
             {autoRegisterResult.discovery.notes.length > 0 ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {autoRegisterResult.discovery.notes.map((note) => (
