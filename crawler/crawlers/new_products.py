@@ -307,9 +307,9 @@ def _extract_date_range_values(
     return available_from, available_to
 
 
-def _get_nested_value(payload: dict[str, Any], path: str | None) -> Any:
+def _get_nested_value(payload: Any, path: str | None) -> Any:
     if not path:
-        return None
+        return payload
 
     current: Any = payload
     for part in path.split("."):
