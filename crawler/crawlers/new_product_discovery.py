@@ -100,6 +100,9 @@ BRAND_SITE_HINT_URLS = {
     "mrpizza": ("https://www.mrpizza.co.kr/",),
     "노브랜드버거": ("https://www.nobrandburger.co.kr/",),
     "nobrandburger": ("https://www.nobrandburger.co.kr/",),
+    "두찜": ("https://www.twozzim.com/",),
+    "2찜": ("https://www.twozzim.com/",),
+    "twozzim": ("https://www.twozzim.com/",),
 }
 DISCOVERY_NON_FOOD_KEYWORDS = (
     "굿즈",
@@ -889,6 +892,359 @@ def _detect_generic_media_event_list_source(
     )
 
 
+def _detect_generic_visual_news_cards_source(
+    *,
+    brand: str,
+    source_type: str,
+    candidate_url: str,
+    soup: BeautifulSoup,
+    notes: list[str],
+) -> NewProductSourceDefinition | None:
+    selector_candidates = (
+        ".swiper-slide-ga",
+        ".news-swiper .swiper-slide",
+        ".swiper-wrapper .swiper-slide",
+    )
+    matched_selector = None
+
+    for selector in selector_candidates:
+        items = soup.select(selector)
+        if len(items) < 3:
+            continue
+
+        valid_items = 0
+        for item in items[:8]:
+            title = item.select_one(".main_lists_tit .titles, .main_lists_tit a[href], a.titles[href]")
+            image = item.select_one(".img_link img, img")
+            detail_link = item.select_one(".main_lists_tit a[href], a.titles[href]")
+            if title and image and detail_link:
+                valid_items += 1
+
+        if valid_items < 3:
+            continue
+
+        matched_selector = selector
+        break
+
+    if not matched_selector:
+        return None
+
+    notes.append("비주얼 카드형 공식 공지/이벤트 페이지를 탐지해 html_visual_news_cards parser를 적용했습니다.")
+    return _build_admin_source_definition(
+        brand=brand,
+        source_type=source_type,
+        channel="소식",
+        site_url=_get_root_url(candidate_url),
+        crawl_url=candidate_url,
+        parser_type="html_visual_news_cards",
+        parser_config={
+            "item_selector": matched_selector,
+            "title_selector": ".main_lists_tit .titles, .main_lists_tit a[href], a.titles[href]",
+            "detail_link_selector": ".main_lists_tit a[href], a.titles[href]",
+            "image_selector": ".img_link img, img",
+            "default_category": "신메뉴 소식",
+            "summary_fallback": "{brand} 공식 소식",
+            "max_items": 40,
+            "detail_date_required": True,
+        },
+        discovery_metadata={
+            "detected_by": "html_visual_news_cards",
+            "matched_url": candidate_url,
+        },
+    )
+
+
+async def _discover_from_candidate_urls(
+    client: httpx.AsyncClient,
+    *,
+    brand: str,
+    source_type: str,
+    sector_key: str | None,
+    candidate_urls: list[str],
+    search_queries: list[str],
+) -> DiscoveredNewProductSource | None:
+    deduped_candidate_urls: list[str] = []
+    seen_candidate_urls: set[str] = set()
+    for candidate_url in candidate_urls:
+        normalized_url = _normalize_url(candidate_url)
+        if normalized_url in seen_candidate_urls:
+            continue
+        seen_candidate_urls.add(normalized_url)
+        deduped_candidate_urls.append(candidate_url)
+
+    for candidate_url in deduped_candidate_urls[:12]:
+        try:
+            soup = await _fetch_soup(client, candidate_url)
+        except Exception:
+            continue
+
+        internal_links = _collect_internal_links(soup, candidate_url)
+        builtin_match = _match_builtin_source_from_urls(
+            candidate_url,
+            source_type=source_type,
+            internal_links=internal_links,
+        )
+        if builtin_match:
+            source, matched_url, notes = builtin_match
+            return DiscoveredNewProductSource(
+                source=_apply_manual_sector(source, sector_key),
+                matched_url=matched_url,
+                official_site_url=source.site_url,
+                confidence=0.92,
+                search_queries=search_queries,
+                notes=notes,
+            )
+
+        notes: list[str] = []
+        generic_board_source = _detect_generic_board_news_source(
+            brand=brand,
+            source_type=source_type,
+            candidate_url=candidate_url,
+            soup=soup,
+            notes=notes,
+        )
+        if generic_board_source:
+            return DiscoveredNewProductSource(
+                source=_apply_manual_sector(generic_board_source, sector_key),
+                matched_url=candidate_url,
+                official_site_url=candidate_url,
+                confidence=0.74,
+                search_queries=search_queries,
+                notes=notes,
+            )
+
+        grid_notes: list[str] = []
+        generic_grid_source = _detect_generic_card_news_grid_source(
+            brand=brand,
+            source_type=source_type,
+            candidate_url=candidate_url,
+            soup=soup,
+            notes=grid_notes,
+        )
+        if generic_grid_source:
+            return DiscoveredNewProductSource(
+                source=_apply_manual_sector(generic_grid_source, sector_key),
+                matched_url=candidate_url,
+                official_site_url=candidate_url,
+                confidence=0.76,
+                search_queries=search_queries,
+                notes=grid_notes,
+            )
+
+        visual_notes: list[str] = []
+        generic_visual_source = _detect_generic_visual_news_cards_source(
+            brand=brand,
+            source_type=source_type,
+            candidate_url=candidate_url,
+            soup=soup,
+            notes=visual_notes,
+        )
+        if generic_visual_source:
+            return DiscoveredNewProductSource(
+                source=_apply_manual_sector(generic_visual_source, sector_key),
+                matched_url=candidate_url,
+                official_site_url=candidate_url,
+                confidence=0.76,
+                search_queries=search_queries,
+                notes=visual_notes,
+            )
+
+        linked_menu_notes: list[str] = []
+        generic_linked_menu_source = _detect_generic_linked_menu_cards_source(
+            brand=brand,
+            source_type=source_type,
+            candidate_url=candidate_url,
+            soup=soup,
+            notes=linked_menu_notes,
+        )
+        if generic_linked_menu_source:
+            return DiscoveredNewProductSource(
+                source=_apply_manual_sector(generic_linked_menu_source, sector_key),
+                matched_url=candidate_url,
+                official_site_url=candidate_url,
+                confidence=0.77,
+                search_queries=search_queries,
+                notes=linked_menu_notes,
+            )
+
+        event_notes: list[str] = []
+        generic_event_source = _detect_generic_event_card_list_source(
+            brand=brand,
+            source_type=source_type,
+            candidate_url=candidate_url,
+            soup=soup,
+            notes=event_notes,
+        )
+        if generic_event_source:
+            return DiscoveredNewProductSource(
+                source=_apply_manual_sector(generic_event_source, sector_key),
+                matched_url=candidate_url,
+                official_site_url=generic_event_source.site_url,
+                confidence=0.78,
+                search_queries=search_queries,
+                notes=event_notes,
+            )
+
+        media_event_notes: list[str] = []
+        generic_media_event_source = _detect_generic_media_event_list_source(
+            brand=brand,
+            source_type=source_type,
+            candidate_url=candidate_url,
+            soup=soup,
+            notes=media_event_notes,
+        )
+        if generic_media_event_source:
+            return DiscoveredNewProductSource(
+                source=_apply_manual_sector(generic_media_event_source, sector_key),
+                matched_url=candidate_url,
+                official_site_url=generic_media_event_source.site_url,
+                confidence=0.75,
+                search_queries=search_queries,
+                notes=media_event_notes,
+            )
+
+        for internal_url in internal_links[:6]:
+            try:
+                internal_soup = await _fetch_soup(client, internal_url)
+            except Exception:
+                continue
+
+            builtin_internal_match = _match_builtin_source_from_urls(
+                internal_url,
+                source_type=source_type,
+                internal_links=None,
+            )
+            if builtin_internal_match:
+                source, matched_url, notes = builtin_internal_match
+                return DiscoveredNewProductSource(
+                    source=_apply_manual_sector(source, sector_key),
+                    matched_url=matched_url,
+                    official_site_url=source.site_url,
+                    confidence=0.9,
+                    search_queries=search_queries,
+                    notes=notes,
+                )
+
+            internal_notes: list[str] = []
+            generic_internal_source = _detect_generic_board_news_source(
+                brand=brand,
+                source_type=source_type,
+                candidate_url=internal_url,
+                soup=internal_soup,
+                notes=internal_notes,
+            )
+            if generic_internal_source:
+                return DiscoveredNewProductSource(
+                    source=_apply_manual_sector(generic_internal_source, sector_key),
+                    matched_url=internal_url,
+                    official_site_url=candidate_url,
+                    confidence=0.72,
+                    search_queries=search_queries,
+                    notes=internal_notes,
+                )
+
+            internal_grid_notes: list[str] = []
+            generic_internal_grid_source = _detect_generic_card_news_grid_source(
+                brand=brand,
+                source_type=source_type,
+                candidate_url=internal_url,
+                soup=internal_soup,
+                notes=internal_grid_notes,
+            )
+            if generic_internal_grid_source:
+                return DiscoveredNewProductSource(
+                    source=_apply_manual_sector(generic_internal_grid_source, sector_key),
+                    matched_url=internal_url,
+                    official_site_url=candidate_url,
+                    confidence=0.74,
+                    search_queries=search_queries,
+                    notes=internal_grid_notes,
+                )
+
+            internal_visual_notes: list[str] = []
+            generic_internal_visual_source = _detect_generic_visual_news_cards_source(
+                brand=brand,
+                source_type=source_type,
+                candidate_url=internal_url,
+                soup=internal_soup,
+                notes=internal_visual_notes,
+            )
+            if generic_internal_visual_source:
+                return DiscoveredNewProductSource(
+                    source=_apply_manual_sector(generic_internal_visual_source, sector_key),
+                    matched_url=internal_url,
+                    official_site_url=candidate_url,
+                    confidence=0.75,
+                    search_queries=search_queries,
+                    notes=internal_visual_notes,
+                )
+
+            internal_linked_menu_notes: list[str] = []
+            generic_internal_linked_menu_source = _detect_generic_linked_menu_cards_source(
+                brand=brand,
+                source_type=source_type,
+                candidate_url=internal_url,
+                soup=internal_soup,
+                notes=internal_linked_menu_notes,
+            )
+            if generic_internal_linked_menu_source:
+                return DiscoveredNewProductSource(
+                    source=_apply_manual_sector(
+                        generic_internal_linked_menu_source,
+                        sector_key,
+                    ),
+                    matched_url=internal_url,
+                    official_site_url=candidate_url,
+                    confidence=0.75,
+                    search_queries=search_queries,
+                    notes=internal_linked_menu_notes,
+                )
+
+            internal_event_notes: list[str] = []
+            generic_internal_event_source = _detect_generic_event_card_list_source(
+                brand=brand,
+                source_type=source_type,
+                candidate_url=internal_url,
+                soup=internal_soup,
+                notes=internal_event_notes,
+            )
+            if generic_internal_event_source:
+                return DiscoveredNewProductSource(
+                    source=_apply_manual_sector(
+                        generic_internal_event_source,
+                        sector_key,
+                    ),
+                    matched_url=internal_url,
+                    official_site_url=generic_internal_event_source.site_url,
+                    confidence=0.76,
+                    search_queries=search_queries,
+                    notes=internal_event_notes,
+                )
+
+            internal_media_event_notes: list[str] = []
+            generic_internal_media_event_source = _detect_generic_media_event_list_source(
+                brand=brand,
+                source_type=source_type,
+                candidate_url=internal_url,
+                soup=internal_soup,
+                notes=internal_media_event_notes,
+            )
+            if generic_internal_media_event_source:
+                return DiscoveredNewProductSource(
+                    source=_apply_manual_sector(
+                        generic_internal_media_event_source,
+                        sector_key,
+                    ),
+                    matched_url=internal_url,
+                    official_site_url=generic_internal_media_event_source.site_url,
+                    confidence=0.73,
+                    search_queries=search_queries,
+                    notes=internal_media_event_notes,
+                )
+
+    return None
+
+
 async def discover_new_product_source(
     *,
     brand: str,
@@ -913,255 +1269,31 @@ async def discover_new_product_source(
     timeout = httpx.Timeout(20.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         hint_candidate_urls = _get_brand_site_hint_urls(normalized_brand, source_type)
+        hinted_result = await _discover_from_candidate_urls(
+            client,
+            brand=normalized_brand,
+            source_type=source_type,
+            sector_key=sector_key,
+            candidate_urls=hint_candidate_urls,
+            search_queries=[],
+        )
+        if hinted_result:
+            return hinted_result
+
         search_queries, searched_candidate_urls = await _search_candidate_urls(
             client,
             brand=normalized_brand,
             source_type=source_type,
         )
-        candidate_urls: list[str] = []
-        seen_candidate_urls: set[str] = set()
-        for candidate_url in (*hint_candidate_urls, *searched_candidate_urls):
-            normalized_url = _normalize_url(candidate_url)
-            if normalized_url in seen_candidate_urls:
-                continue
-            seen_candidate_urls.add(normalized_url)
-            candidate_urls.append(candidate_url)
+        searched_result = await _discover_from_candidate_urls(
+            client,
+            brand=normalized_brand,
+            source_type=source_type,
+            sector_key=sector_key,
+            candidate_urls=searched_candidate_urls,
+            search_queries=search_queries,
+        )
+        if searched_result:
+            return searched_result
 
-        for candidate_url in candidate_urls[:12]:
-            try:
-                soup = await _fetch_soup(client, candidate_url)
-            except Exception:
-                continue
-
-            internal_links = _collect_internal_links(soup, candidate_url)
-            builtin_match = _match_builtin_source_from_urls(
-                candidate_url,
-                source_type=source_type,
-                internal_links=internal_links,
-            )
-            if builtin_match:
-                source, matched_url, notes = builtin_match
-                return DiscoveredNewProductSource(
-                    source=_apply_manual_sector(source, sector_key),
-                    matched_url=matched_url,
-                    official_site_url=source.site_url,
-                    confidence=0.92,
-                    search_queries=search_queries,
-                    notes=notes,
-                )
-
-            notes: list[str] = []
-            generic_board_source = _detect_generic_board_news_source(
-                brand=normalized_brand,
-                source_type=source_type,
-                candidate_url=candidate_url,
-                soup=soup,
-                notes=notes,
-            )
-            if generic_board_source:
-                return DiscoveredNewProductSource(
-                    source=_apply_manual_sector(generic_board_source, sector_key),
-                    matched_url=candidate_url,
-                    official_site_url=candidate_url,
-                    confidence=0.74,
-                    search_queries=search_queries,
-                    notes=notes,
-                )
-
-            grid_notes: list[str] = []
-            generic_grid_source = _detect_generic_card_news_grid_source(
-                brand=normalized_brand,
-                source_type=source_type,
-                candidate_url=candidate_url,
-                soup=soup,
-                notes=grid_notes,
-            )
-            if generic_grid_source:
-                return DiscoveredNewProductSource(
-                    source=_apply_manual_sector(generic_grid_source, sector_key),
-                    matched_url=candidate_url,
-                    official_site_url=candidate_url,
-                    confidence=0.76,
-                    search_queries=search_queries,
-                    notes=grid_notes,
-                )
-
-            linked_menu_notes: list[str] = []
-            generic_linked_menu_source = _detect_generic_linked_menu_cards_source(
-                brand=normalized_brand,
-                source_type=source_type,
-                candidate_url=candidate_url,
-                soup=soup,
-                notes=linked_menu_notes,
-            )
-            if generic_linked_menu_source:
-                return DiscoveredNewProductSource(
-                    source=_apply_manual_sector(generic_linked_menu_source, sector_key),
-                    matched_url=candidate_url,
-                    official_site_url=candidate_url,
-                    confidence=0.77,
-                    search_queries=search_queries,
-                    notes=linked_menu_notes,
-                )
-
-            event_notes: list[str] = []
-            generic_event_source = _detect_generic_event_card_list_source(
-                brand=normalized_brand,
-                source_type=source_type,
-                candidate_url=candidate_url,
-                soup=soup,
-                notes=event_notes,
-            )
-            if generic_event_source:
-                return DiscoveredNewProductSource(
-                    source=_apply_manual_sector(generic_event_source, sector_key),
-                    matched_url=candidate_url,
-                    official_site_url=generic_event_source.site_url,
-                    confidence=0.78,
-                    search_queries=search_queries,
-                    notes=event_notes,
-                )
-
-            media_event_notes: list[str] = []
-            generic_media_event_source = _detect_generic_media_event_list_source(
-                brand=normalized_brand,
-                source_type=source_type,
-                candidate_url=candidate_url,
-                soup=soup,
-                notes=media_event_notes,
-            )
-            if generic_media_event_source:
-                return DiscoveredNewProductSource(
-                    source=_apply_manual_sector(generic_media_event_source, sector_key),
-                    matched_url=candidate_url,
-                    official_site_url=generic_media_event_source.site_url,
-                    confidence=0.75,
-                    search_queries=search_queries,
-                    notes=media_event_notes,
-                )
-
-            for internal_url in internal_links[:6]:
-                try:
-                    internal_soup = await _fetch_soup(client, internal_url)
-                except Exception:
-                    continue
-
-                builtin_internal_match = _match_builtin_source_from_urls(
-                    internal_url,
-                    source_type=source_type,
-                    internal_links=None,
-                )
-                if builtin_internal_match:
-                    source, matched_url, notes = builtin_internal_match
-                    return DiscoveredNewProductSource(
-                        source=_apply_manual_sector(source, sector_key),
-                        matched_url=matched_url,
-                        official_site_url=source.site_url,
-                        confidence=0.9,
-                        search_queries=search_queries,
-                        notes=notes,
-                    )
-
-                internal_notes: list[str] = []
-                generic_internal_source = _detect_generic_board_news_source(
-                    brand=normalized_brand,
-                    source_type=source_type,
-                    candidate_url=internal_url,
-                    soup=internal_soup,
-                    notes=internal_notes,
-                )
-                if generic_internal_source:
-                    return DiscoveredNewProductSource(
-                        source=_apply_manual_sector(generic_internal_source, sector_key),
-                        matched_url=internal_url,
-                        official_site_url=candidate_url,
-                        confidence=0.72,
-                        search_queries=search_queries,
-                        notes=internal_notes,
-                    )
-
-                internal_grid_notes: list[str] = []
-                generic_internal_grid_source = _detect_generic_card_news_grid_source(
-                    brand=normalized_brand,
-                    source_type=source_type,
-                    candidate_url=internal_url,
-                    soup=internal_soup,
-                    notes=internal_grid_notes,
-                )
-                if generic_internal_grid_source:
-                    return DiscoveredNewProductSource(
-                        source=_apply_manual_sector(
-                            generic_internal_grid_source,
-                            sector_key,
-                        ),
-                        matched_url=internal_url,
-                        official_site_url=candidate_url,
-                        confidence=0.74,
-                        search_queries=search_queries,
-                        notes=internal_grid_notes,
-                    )
-
-                internal_linked_menu_notes: list[str] = []
-                generic_internal_linked_menu_source = _detect_generic_linked_menu_cards_source(
-                    brand=normalized_brand,
-                    source_type=source_type,
-                    candidate_url=internal_url,
-                    soup=internal_soup,
-                    notes=internal_linked_menu_notes,
-                )
-                if generic_internal_linked_menu_source:
-                    return DiscoveredNewProductSource(
-                        source=_apply_manual_sector(
-                            generic_internal_linked_menu_source,
-                            sector_key,
-                        ),
-                        matched_url=internal_url,
-                        official_site_url=candidate_url,
-                        confidence=0.75,
-                        search_queries=search_queries,
-                        notes=internal_linked_menu_notes,
-                    )
-
-                internal_event_notes: list[str] = []
-                generic_internal_event_source = _detect_generic_event_card_list_source(
-                    brand=normalized_brand,
-                    source_type=source_type,
-                    candidate_url=internal_url,
-                    soup=internal_soup,
-                    notes=internal_event_notes,
-                )
-                if generic_internal_event_source:
-                    return DiscoveredNewProductSource(
-                        source=_apply_manual_sector(
-                            generic_internal_event_source,
-                            sector_key,
-                        ),
-                        matched_url=internal_url,
-                        official_site_url=generic_internal_event_source.site_url,
-                        confidence=0.76,
-                        search_queries=search_queries,
-                        notes=internal_event_notes,
-                    )
-
-                internal_media_event_notes: list[str] = []
-                generic_internal_media_event_source = _detect_generic_media_event_list_source(
-                    brand=normalized_brand,
-                    source_type=source_type,
-                    candidate_url=internal_url,
-                    soup=internal_soup,
-                    notes=internal_media_event_notes,
-                )
-                if generic_internal_media_event_source:
-                    return DiscoveredNewProductSource(
-                        source=_apply_manual_sector(
-                            generic_internal_media_event_source,
-                            sector_key,
-                        ),
-                        matched_url=internal_url,
-                        official_site_url=generic_internal_media_event_source.site_url,
-                        confidence=0.73,
-                        search_queries=search_queries,
-                        notes=internal_media_event_notes,
-                    )
-
-    raise ValueError("지원 가능한 공식 신상 소스를 찾지 못했습니다. 현재는 등록된 parser preset, 테이블형 공지, 날짜 없는 공지 테이블, 웹진형 뉴스, 메뉴 카드형 페이지, 카드형 이벤트, 미디어형 이벤트 페이지까지 자동 등록됩니다.")
+    raise ValueError("지원 가능한 공식 신상 소스를 찾지 못했습니다. 현재는 등록된 parser preset, 테이블형 공지, 날짜 없는 공지 테이블, 웹진형 뉴스, 비주얼 카드형 공지, 메뉴 카드형 페이지, 카드형 이벤트, 미디어형 이벤트 페이지까지 자동 등록됩니다.")

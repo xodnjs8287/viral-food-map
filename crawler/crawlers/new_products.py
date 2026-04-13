@@ -100,6 +100,10 @@ def _parse_short_dot_date(value: str | None) -> str | None:
     return _parse_datetime(value, ("%y.%m.%d",))
 
 
+def _parse_short_dash_date(value: str | None) -> str | None:
+    return _parse_datetime(value, ("%y-%m-%d",))
+
+
 def _parse_dot_date_end(value: str | None) -> str | None:
     parsed = _parse_dot_date(value)
     if not parsed:
@@ -268,6 +272,8 @@ def _parse_date_value(value: str | None, format_name: str | None) -> str | None:
         return _parse_dot_date(value)
     if format_name == "short_dot":
         return _parse_short_dot_date(value)
+    if format_name == "short_dash":
+        return _parse_short_dash_date(value)
     if format_name == "unix_seconds":
         return _parse_unix_seconds(value)
     return value if value else None
@@ -284,6 +290,8 @@ def _parse_date_end_value(value: str | None, format_name: str | None) -> str | N
         return _parse_dot_date_end(value)
     if format_name == "short_dot":
         return _parse_short_dot_date(value)
+    if format_name == "short_dash":
+        return _parse_short_dash_date(value)
     return value if value else None
 
 
@@ -320,7 +328,9 @@ def _extract_detail_published_at(detail_soup: BeautifulSoup | Any) -> str | None
 
     text_candidates = [
         _normalize_text(node.get_text(" ", strip=True))
-        for node in detail_soup.select(".date, .write_info, .view_info, .board_view, .board_info")
+        for node in detail_soup.select(
+            ".date, .if_date, .write_info, .view_info, .board_view, .board_info"
+        )
     ]
     text_candidates.append(_normalize_text(detail_soup.get_text(" ", strip=True)))
 
@@ -331,6 +341,12 @@ def _extract_detail_published_at(detail_soup: BeautifulSoup | Any) -> str | None
         match = re.search(r"\b\d{2}\.\d{2}\.\d{2}\b", text)
         if match:
             published_at = _parse_date_value(match.group(0), "short_dot")
+            if published_at:
+                return published_at
+
+        match = re.search(r"\b\d{2}-\d{2}-\d{2}\b", text)
+        if match:
+            published_at = _parse_date_value(match.group(0), "short_dash")
             if published_at:
                 return published_at
 
@@ -1111,6 +1127,99 @@ async def _crawl_html_card_news_grid(
                 raw_payload={
                     "date_text": date_text or None,
                 },
+            )
+        )
+
+    return products
+
+
+async def _crawl_html_visual_news_cards(
+    client: httpx.AsyncClient,
+    source: NewProductSourceDefinition,
+) -> list[ParsedNewProduct]:
+    config = _get_parser_config(source)
+    soup = await _fetch_soup(client, source.crawl_url)
+    products: list[ParsedNewProduct] = []
+    item_selector = str(config.get("item_selector") or "")
+    title_selector = str(config.get("title_selector") or "")
+    detail_link_selector = str(config.get("detail_link_selector") or "a[href]")
+    image_selector = str(config.get("image_selector") or "img")
+    default_category = str(config.get("default_category") or "신메뉴 소식")
+    summary_fallback = str(config.get("summary_fallback") or "{brand} 공식 소식")
+    max_items = int(config.get("max_items", 40))
+    require_keyword = bool(config.get("require_keyword", True))
+    allow_food_names_without_keyword = bool(
+        config.get("allow_food_names_without_keyword", False)
+    )
+    short_name_max_length = int(config.get("short_name_max_length", 16))
+    name_hint_keywords = tuple(config.get("name_hint_keywords") or ())
+    title_block_keywords = tuple(config.get("title_block_keywords") or ())
+    detail_date_required = bool(config.get("detail_date_required", True))
+
+    if not item_selector or not title_selector:
+        return []
+
+    for item in soup.select(item_selector)[:max_items]:
+        title = _normalize_text(
+            item.select_one(title_selector).get_text(" ", strip=True)
+            if item.select_one(title_selector)
+            else ""
+        )
+        if not _passes_title_filters(
+            title,
+            require_keyword=require_keyword,
+            allow_food_names_without_keyword=allow_food_names_without_keyword,
+            short_name_max_length=short_name_max_length,
+            name_hint_keywords=name_hint_keywords,
+            title_block_keywords=title_block_keywords,
+        ):
+            continue
+
+        detail_link = item.select_one(detail_link_selector)
+        detail_url = _build_absolute_url(
+            source.site_url,
+            detail_link.get("href") if detail_link else None,
+        )
+        detail_soup = await _fetch_soup(client, detail_url) if detail_url else None
+        published_at = _extract_detail_published_at(detail_soup)
+        if detail_date_required and not published_at:
+            continue
+        if published_at and not _is_recent_or_active(published_at):
+            continue
+
+        image_element = item.select_one(image_selector)
+        image_url = _build_absolute_url(
+            source.site_url,
+            image_element.get("src") if image_element else None,
+        )
+        external_id = _build_stable_external_id(
+            source=source,
+            detail_url=detail_url,
+            image_url=image_url,
+            name=title,
+        )
+
+        products.append(
+            ParsedNewProduct(
+                external_id=external_id,
+                name=title,
+                brand=source.brand,
+                source_type=source.source_type,
+                channel=source.channel,
+                category=default_category,
+                summary=_format_template_value(
+                    summary_fallback,
+                    brand=source.brand,
+                    category=default_category,
+                ),
+                image_url=image_url,
+                product_url=detail_url or source.site_url,
+                published_at=published_at,
+                available_from=published_at,
+                available_to=None,
+                is_limited=False,
+                is_food=True,
+                raw_payload={},
             )
         )
 
@@ -2071,6 +2180,8 @@ async def _crawl_source(
         return await _crawl_html_board_news_table(client, source)
     if source.parser_type == "html_card_news_grid":
         return await _crawl_html_card_news_grid(client, source)
+    if source.parser_type == "html_visual_news_cards":
+        return await _crawl_html_visual_news_cards(client, source)
     if source.parser_type == "html_event_card_list":
         return await _crawl_html_event_card_list(client, source)
     if source.parser_type == "html_media_event_list":
