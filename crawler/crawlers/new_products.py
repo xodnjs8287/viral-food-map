@@ -2509,6 +2509,7 @@ async def refresh_new_products(trigger: str = "scheduler") -> dict[str, Any]:
         "updated_products": 0,
         "visible_products": 0,
         "source_summaries": [],
+        "failed_sources": [],
     }
 
     _sync_code_defined_sources(started_at)
@@ -2517,12 +2518,28 @@ async def refresh_new_products(trigger: str = "scheduler") -> dict[str, Any]:
     timeout = httpx.Timeout(30.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         for source in runtime_sources:
-            source_summary = await _refresh_single_source(
-                client,
-                source,
-                started_at=started_at,
-                trigger=trigger,
-            )
+            try:
+                source_summary = await _refresh_single_source(
+                    client,
+                    source,
+                    started_at=started_at,
+                    trigger=trigger,
+                )
+            except Exception as exc:  # pragma: no cover - network instability
+                logger.exception(
+                    "New products source crawl failed: %s (%s)",
+                    source.source_key,
+                    source.title,
+                )
+                summary["failed_sources"].append(
+                    {
+                        "source_key": source.source_key,
+                        "title": source.title,
+                        "error": str(exc),
+                    }
+                )
+                continue
+
             summary["sources"] += 1
             summary["fetched_products"] += source_summary["fetched"]
             summary["inserted_products"] += source_summary["inserted"]
