@@ -3,6 +3,8 @@ import traceback
 from collections import deque
 from threading import Lock
 
+import httpx
+
 from notifications.discord import send_discord_message
 
 RECENT_LOG_CAPACITY = 50
@@ -85,6 +87,21 @@ def _get_recent_logs(limit: int = RECENT_LOG_PREVIEW_COUNT) -> str:
     return "\n".join(lines)
 
 
+def _collect_httpx_context(exc: Exception) -> dict[str, str]:
+    details: dict[str, str] = {}
+    current: BaseException | None = exc
+
+    while current is not None:
+        if isinstance(current, httpx.RequestError):
+            request = current.request
+            details["요청"] = f"{request.method} {request.url}"
+            break
+
+        current = current.__cause__
+
+    return details
+
+
 async def report_exception_to_discord(
     context: str,
     exc: Exception,
@@ -105,10 +122,14 @@ async def report_exception_to_discord(
         f"예외: {exc.__class__.__name__}: {exc}",
     ]
 
+    merged_details: dict[str, str] = {}
+    merged_details.update(_collect_httpx_context(exc))
     if details:
-        for key, value in details.items():
-            if value:
-                summary_lines.append(f"{key}: {value}")
+        merged_details.update(details)
+
+    for key, value in merged_details.items():
+        if value:
+            summary_lines.append(f"{key}: {value}")
 
     await send_discord_message("\n".join(summary_lines))
 
