@@ -45,9 +45,9 @@ class NewProductSourceDefinition:
     discovery_metadata: dict[str, Any] = field(default_factory=dict)
 
 
-# 새 브랜드는 가능한 한 여기만 수정해서 추가한다.
-# parser_type은 new_products.py의 핸들러에 매핑되고,
-# 같은 템플릿이면 parser_config만 바꿔서 등록할 수 있다.
+# 신규 브랜드는 가능하면 이 파일에만 추가해서 관리한다.
+# parser_type은 new_products.py의 핸들러와 매핑되고,
+# 같은 템플릿이면 parser_config만 바꿔서 등록하면 된다.
 SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
     NewProductSourceDefinition(
         source_key="emart24_fresh_food",
@@ -159,7 +159,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
             "image_attr_order": ("data-src", "src"),
             "default_category": "피자",
             "category_heading_tags": ("h3", "h4"),
-            "category_exclude_keywords": ("치킨&사이드", "먹어봄"),
+            "category_exclude_keywords": ("치킨&사이드", "먹어유"),
             "category_max_length": 18,
             "summary_fallback": "{brand} 공식 NEW 메뉴",
             "summary_hashtag_limit": 2,
@@ -247,7 +247,7 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
                 "딜리버리",
                 "올데이킹",
                 "GRAND OPEN",
-                "공유 件",
+                "공유",
                 "도전하라",
                 "하루종일",
             ),
