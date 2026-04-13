@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import {
+  autoRegisterNewProductSource,
   fetchNewProductsRefreshStatus,
   triggerNewProductsRefresh,
+  type AutoRegisterNewProductSourceResponse,
   type NewProductsRefreshStatus,
 } from "@/lib/crawler";
 import { supabase } from "@/lib/supabase";
@@ -66,6 +68,10 @@ export default function NewProductsTab() {
   const [requestMessage, setRequestMessage] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [brandInput, setBrandInput] = useState("");
+  const [autoSourceType, setAutoSourceType] = useState<NewProductSourceType>("franchise");
+  const [autoRegisterResult, setAutoRegisterResult] =
+    useState<AutoRegisterNewProductSourceResponse | null>(null);
 
   const loadData = async () => {
     const [productsResult, sourcesResult, runsResult, refreshResult] =
@@ -130,6 +136,39 @@ export default function NewProductsTab() {
       setRequestStatus("error");
       setRequestMessage(
         error instanceof Error ? error.message : "신상 수집 실행에 실패했습니다."
+      );
+    }
+  };
+
+  const handleAutoRegister = async () => {
+    const normalizedBrand = brandInput.trim();
+    if (!normalizedBrand) {
+      setRequestStatus("error");
+      setRequestMessage("등록할 브랜드명을 입력해 주세요.");
+      return;
+    }
+
+    try {
+      setRequestStatus("loading");
+      setRequestMessage("공식 신상 채널을 찾고 자동 등록하는 중입니다...");
+
+      const accessToken = await getAdminAccessToken();
+      const result = await autoRegisterNewProductSource(accessToken, {
+        brand: normalizedBrand,
+        sourceType: autoSourceType,
+      });
+
+      setAutoRegisterResult(result);
+      setRequestStatus("success");
+      setRequestMessage(
+        `${result.source?.brand || normalizedBrand} 소스를 등록했습니다. 미리보기 ${result.preview.fetched_products}건, 반영 ${result.summary.visible_products}건입니다.`
+      );
+      setBrandInput("");
+      await loadData();
+    } catch (error) {
+      setRequestStatus("error");
+      setRequestMessage(
+        error instanceof Error ? error.message : "브랜드 자동 등록에 실패했습니다."
       );
     }
   };
@@ -199,6 +238,93 @@ export default function NewProductsTab() {
           {requestMessage}
         </div>
       ) : null}
+
+      <div className="rounded-xl border border-gray-100 bg-white p-4">
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold text-gray-900">브랜드 자동 등록</h3>
+          <p className="mt-1 text-xs text-gray-400">
+            브랜드명만 입력하면 공식 신상 채널을 찾아 parser를 연결하고 바로 수집합니다.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3 lg:flex-row">
+          <input
+            value={brandInput}
+            onChange={(event) => setBrandInput(event.target.value)}
+            placeholder="예: 맘스터치, 도미노피자"
+            className="min-w-0 flex-1 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-900 outline-none transition-colors placeholder:text-gray-400 focus:border-primary"
+          />
+          <select
+            value={autoSourceType}
+            onChange={(event) =>
+              setAutoSourceType(event.target.value as NewProductSourceType)
+            }
+            className="rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 outline-none transition-colors focus:border-primary"
+          >
+            <option value="franchise">프랜차이즈</option>
+            <option value="convenience">편의점</option>
+          </select>
+          <button
+            onClick={() => {
+              void handleAutoRegister();
+            }}
+            disabled={requestStatus === "loading"}
+            className="rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:opacity-60"
+          >
+            {requestStatus === "loading" ? "자동 등록 중..." : "자동 등록"}
+          </button>
+        </div>
+
+        {autoRegisterResult ? (
+          <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">
+                {SOURCE_LABELS[autoRegisterResult.source?.source_type || autoSourceType]}
+              </span>
+              <span className="rounded-full bg-gray-900 px-2 py-1 text-[11px] font-semibold text-white">
+                {autoRegisterResult.source?.parser_type || "parser 없음"}
+              </span>
+              <span className="rounded-full bg-green-50 px-2 py-1 text-[11px] font-semibold text-green-700">
+                신뢰도 {(autoRegisterResult.discovery.confidence * 100).toFixed(0)}%
+              </span>
+            </div>
+            <p className="mt-3 text-sm font-semibold text-gray-900">
+              {autoRegisterResult.source?.title || "자동 등록 소스"}
+            </p>
+            <div className="mt-2 flex flex-col gap-1 text-xs text-gray-500">
+              <p>공식 URL: {autoRegisterResult.discovery.official_site_url}</p>
+              <p>매칭 URL: {autoRegisterResult.discovery.matched_url}</p>
+              <p>미리보기 수집: {autoRegisterResult.preview.fetched_products}건</p>
+            </div>
+            {autoRegisterResult.discovery.notes.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {autoRegisterResult.discovery.notes.map((note) => (
+                  <span
+                    key={note}
+                    className="rounded-full bg-white px-2 py-1 text-[11px] text-gray-500"
+                  >
+                    {note}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {autoRegisterResult.preview.preview_items.length > 0 ? (
+              <div className="mt-3 flex flex-col gap-2">
+                {autoRegisterResult.preview.preview_items.map((item) => (
+                  <div
+                    key={item.external_id}
+                    className="rounded-lg border border-gray-100 bg-white px-3 py-2"
+                  >
+                    <p className="text-sm font-medium text-gray-900">{item.name}</p>
+                    <p className="mt-1 text-xs text-gray-400">
+                      기준일 {formatDateTime(item.published_at)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="rounded-xl border border-gray-100 bg-white p-4">
@@ -373,15 +499,20 @@ export default function NewProductsTab() {
                         {SOURCE_LABELS[source.source_type]} · {source.channel}
                       </p>
                     </div>
-                    <span
-                      className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
-                        source.is_active
-                          ? "bg-green-50 text-green-700"
-                          : "bg-gray-100 text-gray-500"
-                      }`}
-                    >
-                      {source.is_active ? "활성" : "비활성"}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-gray-900 px-2 py-1 text-[11px] font-semibold text-white">
+                        {source.source_origin === "admin" ? "어드민 등록" : "코드 등록"}
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                          source.is_active
+                            ? "bg-green-50 text-green-700"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {source.is_active ? "활성" : "비활성"}
+                      </span>
+                    </div>
                   </div>
                   <p className="mt-2 text-xs text-gray-400">
                     마지막 성공 {formatDateTime(source.last_success_at)}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import logging
 import re
@@ -19,6 +20,7 @@ from database import (
     expire_new_products_by_source_id,
     get_new_products_by_source_id,
     list_new_product_sources,
+    list_runtime_new_product_sources,
     update_new_product_crawl_run,
     update_new_product_source,
     upsert_new_product_source,
@@ -46,6 +48,10 @@ NON_FOOD_KEYWORDS = (
     "안내",
     "결과 발표",
 )
+SOURCE_DEFINITION_MAP = {
+    source.source_key: source
+    for source in SOURCE_DEFINITIONS
+}
 @dataclass(slots=True)
 class ParsedNewProduct:
     external_id: str
@@ -689,20 +695,45 @@ async def _crawl_paikdabang_news(
     client: httpx.AsyncClient,
     source: NewProductSourceDefinition,
 ) -> list[ParsedNewProduct]:
+    return await _crawl_html_board_news_table(client, source)
+
+
+async def _crawl_html_board_news_table(
+    client: httpx.AsyncClient,
+    source: NewProductSourceDefinition,
+) -> list[ParsedNewProduct]:
+    config = _get_parser_config(source)
     soup = await _fetch_soup(client, source.crawl_url)
     products: list[ParsedNewProduct] = []
-    max_items = int(_get_parser_config(source).get("max_items", 40))
+    max_items = int(config.get("max_items", 40))
+    row_selector = str(config.get("row_selector") or ".board_wrap table tbody tr")
+    min_cell_count = int(config.get("min_cell_count", 4))
+    category_cell_index = int(config.get("category_cell_index", 1))
+    title_cell_index = int(config.get("title_cell_index", 2))
+    date_cell_index = int(config.get("date_cell_index", 3))
+    detail_link_selector = str(config.get("detail_link_selector") or "a[href]")
+    required_category = _normalize_text(str(config.get("required_category") or ""))
+    default_category = str(config.get("default_category") or "신메뉴 소식")
+    summary_fallback = str(config.get("summary_fallback") or "{brand} 공식 소식")
+    detail_image_markers = tuple(config.get("detail_image_markers") or ("/wp-content/uploads/",))
+    date_format = str(config.get("date_format") or "dash")
 
-    for row in soup.select(".board_wrap table tbody tr")[:max_items]:
+    for row in soup.select(row_selector)[:max_items]:
         cells = row.find_all("td")
-        if len(cells) < 4:
+        if len(cells) < min_cell_count:
             continue
 
-        category_text = cells[1].get_text(" ", strip=True)
-        title_link = cells[2].find("a", href=True)
+        if max(category_cell_index, title_cell_index, date_cell_index) >= len(cells):
+            continue
+
+        category_text = cells[category_cell_index].get_text(" ", strip=True)
+        title_link = cells[title_cell_index].select_one(detail_link_selector)
         title = title_link.get_text(" ", strip=True) if title_link else ""
-        published_at = _parse_dash_date(cells[3].get_text(" ", strip=True))
-        if category_text != "소식":
+        published_at = _parse_date_value(
+            cells[date_cell_index].get_text(" ", strip=True),
+            date_format,
+        )
+        if required_category and _normalize_text(category_text) != required_category:
             continue
         if not title or not _has_new_product_keyword(title):
             continue
@@ -717,7 +748,7 @@ async def _crawl_paikdabang_news(
             _extract_first_matching_image(
                 detail_soup,
                 base_url=detail_url or source.site_url,
-                markers=("/wp-content/uploads/",),
+                markers=detail_image_markers,
             )
             if detail_soup
             else None
@@ -734,8 +765,12 @@ async def _crawl_paikdabang_news(
                 brand=source.brand,
                 source_type=source.source_type,
                 channel=source.channel,
-                category="신메뉴 소식",
-                summary=f"{source.brand} 공식 소식",
+                category=default_category,
+                summary=_format_template_value(
+                    summary_fallback,
+                    brand=source.brand,
+                    category=default_category,
+                ),
                 image_url=image_url,
                 product_url=detail_url or source.site_url,
                 published_at=published_at,
@@ -1340,6 +1375,8 @@ async def _crawl_source(
         return await _crawl_lotteeatz_launch_events(client, source)
     if source.parser_type == "paikdabang_news_table":
         return await _crawl_paikdabang_news(client, source)
+    if source.parser_type == "html_board_news_table":
+        return await _crawl_html_board_news_table(client, source)
     if source.parser_type == "kfc_new_menu":
         return await _crawl_kfc_new_menu(client, source)
     if source.parser_type == "html_paged_new_menu":
@@ -1364,6 +1401,10 @@ def _build_source_payload(source: NewProductSourceDefinition) -> dict[str, Any]:
         "channel": source.channel,
         "site_url": source.site_url,
         "crawl_url": source.crawl_url,
+        "parser_type": source.parser_type,
+        "parser_config": source.parser_config,
+        "source_origin": source.source_origin,
+        "discovery_metadata": source.discovery_metadata,
         "is_active": True,
     }
 
@@ -1373,6 +1414,8 @@ def _deactivate_retired_sources(active_source_keys: set[str], timestamp: str) ->
         source_key = str(source_row.get("source_key") or "").strip()
         source_id = str(source_row.get("id") or "").strip()
         if not source_key or not source_id:
+            continue
+        if str(source_row.get("source_origin") or "code").strip() != "code":
             continue
         if source_key in active_source_keys:
             continue
@@ -1387,6 +1430,263 @@ def _deactivate_retired_sources(active_source_keys: set[str], timestamp: str) ->
         )
 
 
+def _build_source_definition_from_row(
+    source_row: dict[str, Any],
+) -> NewProductSourceDefinition | None:
+    source_key = str(source_row.get("source_key") or "").strip()
+    fallback = SOURCE_DEFINITION_MAP.get(source_key)
+    parser_type = str(source_row.get("parser_type") or "").strip()
+    parser_config = source_row.get("parser_config")
+    source_origin = str(source_row.get("source_origin") or "").strip() or "admin"
+    discovery_metadata = source_row.get("discovery_metadata")
+
+    if not parser_type and fallback:
+        parser_type = fallback.parser_type
+    if not parser_config and fallback:
+        parser_config = deepcopy(fallback.parser_config)
+    if not discovery_metadata and fallback:
+        discovery_metadata = deepcopy(fallback.discovery_metadata)
+    if not source_origin and fallback:
+        source_origin = fallback.source_origin
+
+    if not source_key or not parser_type:
+        return None
+
+    title = str(source_row.get("title") or (fallback.title if fallback else "")).strip()
+    brand = str(source_row.get("brand") or (fallback.brand if fallback else "")).strip()
+    source_type = str(
+        source_row.get("source_type") or (fallback.source_type if fallback else "")
+    ).strip()
+    channel = str(source_row.get("channel") or (fallback.channel if fallback else "")).strip()
+    site_url = str(source_row.get("site_url") or (fallback.site_url if fallback else "")).strip()
+    crawl_url = str(
+        source_row.get("crawl_url") or (fallback.crawl_url if fallback else "")
+    ).strip()
+
+    return NewProductSourceDefinition(
+        source_key=source_key,
+        title=title,
+        brand=brand,
+        source_type=source_type,
+        channel=channel,
+        site_url=site_url,
+        crawl_url=crawl_url,
+        parser_type=parser_type,
+        parser_config=deepcopy(parser_config or {}),
+        source_origin=source_origin,
+        discovery_metadata=deepcopy(discovery_metadata or {}),
+    )
+
+
+def _sync_code_defined_sources(timestamp: str) -> None:
+    active_source_keys = {source.source_key for source in SOURCE_DEFINITIONS}
+    _deactivate_retired_sources(active_source_keys, timestamp)
+    for source in SOURCE_DEFINITIONS:
+        upsert_new_product_source(_build_source_payload(source))
+
+
+def _load_runtime_sources() -> list[NewProductSourceDefinition]:
+    runtime_sources: list[NewProductSourceDefinition] = []
+    for source_row in list_runtime_new_product_sources():
+        source = _build_source_definition_from_row(source_row)
+        if not source:
+            logger.warning("Skipping invalid runtime new products source row: %s", source_row)
+            continue
+        runtime_sources.append(source)
+    return runtime_sources
+
+
+async def _refresh_single_source(
+    client: httpx.AsyncClient,
+    source: NewProductSourceDefinition,
+    *,
+    started_at: str,
+    trigger: str,
+) -> dict[str, Any]:
+    source_row = upsert_new_product_source(_build_source_payload(source))
+    if not source_row:
+        logger.warning(
+            "Skipping new products source without persisted row: %s",
+            source.source_key,
+        )
+        return {
+            "source_key": source.source_key,
+            "title": source.title,
+            "fetched": 0,
+            "inserted": 0,
+            "updated": 0,
+            "expired": 0,
+            "visible": 0,
+            "source_id": None,
+        }
+
+    source_id = str(source_row["id"])
+    run_row = create_new_product_crawl_run(
+        {
+            "source_id": source_id,
+            "source_key": source.source_key,
+            "trigger": trigger,
+            "status": "running",
+            "started_at": started_at,
+        }
+    )
+    run_id = str(run_row["id"]) if run_row else None
+
+    try:
+        existing_rows = get_new_products_by_source_id(source_id)
+        existing_lookup = {
+            str(row.get("external_id") or ""): row
+            for row in existing_rows
+            if row.get("external_id")
+        }
+        existing_ids = set(existing_lookup)
+        parsed_products = await _crawl_source(client, source)
+        current_external_ids = {product.external_id for product in parsed_products}
+        payloads = [
+            {
+                "source_id": source_id,
+                "external_id": product.external_id,
+                "name": product.name,
+                "brand": product.brand,
+                "source_type": product.source_type,
+                "channel": product.channel,
+                "category": product.category,
+                "summary": product.summary,
+                "image_url": product.image_url,
+                "product_url": product.product_url,
+                "published_at": product.published_at,
+                "available_from": product.available_from,
+                "available_to": product.available_to,
+                "last_seen_at": started_at,
+                "is_food": product.is_food,
+                "is_limited": product.is_limited,
+                "status": (
+                    "hidden"
+                    if existing_lookup.get(product.external_id, {}).get("status") == "hidden"
+                    else "visible"
+                ),
+                "raw_payload": product.raw_payload,
+            }
+            for product in parsed_products
+            if product.is_food
+        ]
+
+        expired_product_ids = [
+            str(row.get("id"))
+            for row in existing_rows
+            if row.get("id")
+            and row.get("status") == "visible"
+            and str(row.get("external_id") or "") not in current_external_ids
+        ]
+
+        inserted_count = sum(
+            1 for payload in payloads if payload["external_id"] not in existing_ids
+        )
+        updated_count = max(len(payloads) - inserted_count, 0)
+        upsert_new_products(payloads)
+        expire_new_products(expired_product_ids)
+
+        finished_at = _utc_now_iso()
+        update_new_product_source(
+            source_id,
+            {
+                "is_active": True,
+                "last_crawled_at": finished_at,
+                "last_success_at": finished_at,
+            },
+        )
+        if run_id:
+            update_new_product_crawl_run(
+                run_id,
+                {
+                    "status": "success",
+                    "fetched_count": len(parsed_products),
+                    "inserted_count": inserted_count,
+                    "updated_count": updated_count,
+                    "visible_count": len(payloads),
+                    "summary": {
+                        "title": source.title,
+                        "source_type": source.source_type,
+                        "expired": len(expired_product_ids),
+                    },
+                    "finished_at": finished_at,
+                },
+            )
+
+        return {
+            "source_id": source_id,
+            "source_key": source.source_key,
+            "title": source.title,
+            "fetched": len(parsed_products),
+            "inserted": inserted_count,
+            "updated": updated_count,
+            "expired": len(expired_product_ids),
+            "visible": len(payloads),
+        }
+    except Exception as exc:
+        finished_at = _utc_now_iso()
+        update_new_product_source(source_id, {"last_crawled_at": finished_at})
+        if run_id:
+            update_new_product_crawl_run(
+                run_id,
+                {
+                    "status": "failed",
+                    "error_message": str(exc),
+                    "finished_at": finished_at,
+                },
+            )
+        raise
+
+
+async def preview_new_products_source(
+    source: NewProductSourceDefinition,
+    *,
+    limit: int = 5,
+) -> dict[str, Any]:
+    timeout = httpx.Timeout(30.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        parsed_products = await _crawl_source(client, source)
+
+    preview_items = [
+        {
+            "external_id": product.external_id,
+            "name": product.name,
+            "published_at": product.published_at,
+            "product_url": product.product_url,
+        }
+        for product in parsed_products[:limit]
+    ]
+    return {
+        "fetched_products": len(parsed_products),
+        "preview_items": preview_items,
+    }
+
+
+async def refresh_new_products_for_source(
+    source: NewProductSourceDefinition,
+    *,
+    trigger: str = "manual",
+) -> dict[str, Any]:
+    started_at = _utc_now_iso()
+    timeout = httpx.Timeout(30.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        source_summary = await _refresh_single_source(
+            client,
+            source,
+            started_at=started_at,
+            trigger=trigger,
+        )
+
+    return {
+        "sources": 1,
+        "fetched_products": source_summary["fetched"],
+        "inserted_products": source_summary["inserted"],
+        "updated_products": source_summary["updated"],
+        "visible_products": source_summary["visible"],
+        "source_summaries": [source_summary],
+    }
+
+
 async def refresh_new_products(trigger: str = "scheduler") -> dict[str, Any]:
     started_at = _utc_now_iso()
     summary: dict[str, Any] = {
@@ -1398,140 +1698,23 @@ async def refresh_new_products(trigger: str = "scheduler") -> dict[str, Any]:
         "source_summaries": [],
     }
 
-    active_source_keys = {source.source_key for source in SOURCE_DEFINITIONS}
-    _deactivate_retired_sources(active_source_keys, started_at)
+    _sync_code_defined_sources(started_at)
+    runtime_sources = _load_runtime_sources()
 
     timeout = httpx.Timeout(30.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        for source in SOURCE_DEFINITIONS:
-            source_row = upsert_new_product_source(_build_source_payload(source))
-            if not source_row:
-                logger.warning(
-                    "Skipping new products source without persisted row: %s",
-                    source.source_key,
-                )
-                continue
-
-            source_id = str(source_row["id"])
-            run_row = create_new_product_crawl_run(
-                {
-                    "source_id": source_id,
-                    "source_key": source.source_key,
-                    "trigger": trigger,
-                    "status": "running",
-                    "started_at": started_at,
-                }
+        for source in runtime_sources:
+            source_summary = await _refresh_single_source(
+                client,
+                source,
+                started_at=started_at,
+                trigger=trigger,
             )
-            run_id = str(run_row["id"]) if run_row else None
-
-            try:
-                existing_rows = get_new_products_by_source_id(source_id)
-                existing_lookup = {
-                    str(row.get("external_id") or ""): row
-                    for row in existing_rows
-                    if row.get("external_id")
-                }
-                existing_ids = set(existing_lookup)
-                parsed_products = await _crawl_source(client, source)
-                current_external_ids = {product.external_id for product in parsed_products}
-                payloads = [
-                    {
-                        "source_id": source_id,
-                        "external_id": product.external_id,
-                        "name": product.name,
-                        "brand": product.brand,
-                        "source_type": product.source_type,
-                        "channel": product.channel,
-                        "category": product.category,
-                        "summary": product.summary,
-                        "image_url": product.image_url,
-                        "product_url": product.product_url,
-                        "published_at": product.published_at,
-                        "available_from": product.available_from,
-                        "available_to": product.available_to,
-                        "last_seen_at": started_at,
-                        "is_food": product.is_food,
-                        "is_limited": product.is_limited,
-                        "status": (
-                            "hidden"
-                            if existing_lookup.get(product.external_id, {}).get("status") == "hidden"
-                            else "visible"
-                        ),
-                        "raw_payload": product.raw_payload,
-                    }
-                    for product in parsed_products
-                    if product.is_food
-                ]
-
-                expired_product_ids = [
-                    str(row.get("id"))
-                    for row in existing_rows
-                    if row.get("id")
-                    and row.get("status") == "visible"
-                    and str(row.get("external_id") or "") not in current_external_ids
-                ]
-
-                inserted_count = sum(
-                    1 for payload in payloads if payload["external_id"] not in existing_ids
-                )
-                updated_count = max(len(payloads) - inserted_count, 0)
-                upsert_new_products(payloads)
-                expire_new_products(expired_product_ids)
-
-                finished_at = _utc_now_iso()
-                update_new_product_source(
-                    source_id,
-                    {
-                        "is_active": True,
-                        "last_crawled_at": finished_at,
-                        "last_success_at": finished_at,
-                    },
-                )
-                if run_id:
-                    update_new_product_crawl_run(
-                        run_id,
-                        {
-                            "status": "success",
-                            "fetched_count": len(parsed_products),
-                            "inserted_count": inserted_count,
-                            "updated_count": updated_count,
-                            "visible_count": len(payloads),
-                            "summary": {
-                                "title": source.title,
-                                "source_type": source.source_type,
-                                "expired": len(expired_product_ids),
-                            },
-                            "finished_at": finished_at,
-                        },
-                    )
-
-                source_summary = {
-                    "source_key": source.source_key,
-                    "title": source.title,
-                    "fetched": len(parsed_products),
-                    "inserted": inserted_count,
-                    "updated": updated_count,
-                    "expired": len(expired_product_ids),
-                    "visible": len(payloads),
-                }
-                summary["sources"] += 1
-                summary["fetched_products"] += len(parsed_products)
-                summary["inserted_products"] += inserted_count
-                summary["updated_products"] += updated_count
-                summary["visible_products"] += len(payloads)
-                summary["source_summaries"].append(source_summary)
-            except Exception as exc:
-                finished_at = _utc_now_iso()
-                update_new_product_source(source_id, {"last_crawled_at": finished_at})
-                if run_id:
-                    update_new_product_crawl_run(
-                        run_id,
-                        {
-                            "status": "failed",
-                            "error_message": str(exc),
-                            "finished_at": finished_at,
-                        },
-                    )
-                raise
+            summary["sources"] += 1
+            summary["fetched_products"] += source_summary["fetched"]
+            summary["inserted_products"] += source_summary["inserted"]
+            summary["updated_products"] += source_summary["updated"]
+            summary["visible_products"] += source_summary["visible"]
+            summary["source_summaries"].append(source_summary)
 
     return summary

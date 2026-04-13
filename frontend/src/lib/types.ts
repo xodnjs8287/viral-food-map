@@ -59,6 +59,7 @@ export interface Keyword {
 
 export type NewProductSourceType = "convenience" | "franchise";
 export type NewProductStatus = "visible" | "hidden" | "expired";
+export type NewProductSourceOrigin = "code" | "admin";
 
 export interface NewProductSource {
   id: string;
@@ -69,6 +70,10 @@ export interface NewProductSource {
   channel: string;
   site_url: string;
   crawl_url: string;
+  parser_type: string | null;
+  parser_config: Record<string, unknown>;
+  source_origin: NewProductSourceOrigin;
+  discovery_metadata: Record<string, unknown>;
   is_active: boolean;
   last_crawled_at: string | null;
   last_success_at: string | null;

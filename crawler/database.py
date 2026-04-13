@@ -814,11 +814,43 @@ def list_new_product_sources() -> list[dict[str, Any]]:
     return (
         get_client()
         .table("new_product_sources")
-        .select("id, source_key, is_active")
+        .select("id, source_key, is_active, source_origin")
         .execute()
         .data
         or []
     )
+
+
+def list_runtime_new_product_sources() -> list[dict[str, Any]]:
+    return (
+        get_client()
+        .table("new_product_sources")
+        .select(
+            "id, source_key, title, brand, source_type, channel, site_url, crawl_url, "
+            "parser_type, parser_config, source_origin, discovery_metadata, is_active"
+        )
+        .eq("is_active", True)
+        .order("created_at")
+        .execute()
+        .data
+        or []
+    )
+
+
+def get_new_product_source_by_source_key(source_key: str) -> dict[str, Any] | None:
+    result = (
+        get_client()
+        .table("new_product_sources")
+        .select(
+            "id, source_key, title, brand, source_type, channel, site_url, crawl_url, "
+            "parser_type, parser_config, source_origin, discovery_metadata, is_active"
+        )
+        .eq("source_key", source_key)
+        .limit(1)
+        .execute()
+    )
+    data = result.data or []
+    return data[0] if data else None
 
 
 def get_new_products_by_source_id(source_id: str) -> list[dict[str, Any]]:

@@ -41,6 +41,8 @@ class NewProductSourceDefinition:
     crawl_url: str
     parser_type: str
     parser_config: dict[str, Any] = field(default_factory=dict)
+    source_origin: str = "code"
+    discovery_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # 새 브랜드는 가능한 한 여기만 수정해서 추가한다.
@@ -81,8 +83,19 @@ SOURCE_DEFINITIONS: tuple[NewProductSourceDefinition, ...] = (
         channel="소식",
         site_url="https://paikdabang.com/news/",
         crawl_url="https://paikdabang.com/news/",
-        parser_type="paikdabang_news_table",
+        parser_type="html_board_news_table",
         parser_config={
+            "row_selector": ".board_wrap table tbody tr",
+            "min_cell_count": 4,
+            "category_cell_index": 1,
+            "title_cell_index": 2,
+            "date_cell_index": 3,
+            "date_format": "dash",
+            "detail_link_selector": "a[href]",
+            "required_category": "소식",
+            "default_category": "신메뉴 소식",
+            "summary_fallback": "{brand} 공식 소식",
+            "detail_image_markers": ("/wp-content/uploads/",),
             "max_items": 40,
         },
     ),

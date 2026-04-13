@@ -179,6 +179,41 @@ export interface TriggerNewProductsRefreshResponse {
   summary: NewProductsRefreshSummary;
 }
 
+export interface AutoRegisterNewProductSourcePreviewItem {
+  external_id: string;
+  name: string;
+  published_at: string | null;
+  product_url: string | null;
+}
+
+export interface AutoRegisterNewProductSourceResponse {
+  message: string;
+  source: {
+    id: string;
+    source_key: string;
+    title: string;
+    brand: string;
+    source_type: "franchise" | "convenience";
+    channel: string;
+    site_url: string;
+    crawl_url: string;
+    parser_type: string | null;
+    source_origin: "code" | "admin";
+  } | null;
+  discovery: {
+    matched_url: string;
+    official_site_url: string;
+    confidence: number;
+    search_queries: string[];
+    notes: string[];
+  };
+  preview: {
+    fetched_products: number;
+    preview_items: AutoRegisterNewProductSourcePreviewItem[];
+  };
+  summary: NewProductsRefreshSummary;
+}
+
 export interface InstagramPublishedTrend {
   id?: string;
   name?: string;
@@ -476,6 +511,38 @@ export async function fetchNewProductsRefreshStatus(): Promise<NewProductsRefres
 
   if (!response.ok) {
     throw new Error("신상 수집 상태 확인에 실패했습니다.");
+  }
+
+  return response.json();
+}
+
+export async function autoRegisterNewProductSource(
+  accessToken: string,
+  payload: {
+    brand: string;
+    sourceType: "franchise" | "convenience";
+  }
+): Promise<AutoRegisterNewProductSourceResponse> {
+  if (!CRAWLER_BASE_URL) {
+    throw new Error("크롤러 API 주소가 설정되지 않았습니다.");
+  }
+
+  const response = await fetch(`${CRAWLER_BASE_URL}/api/new-products/auto-register`, {
+    method: "POST",
+    headers: getAdminCrawlerHeaders(accessToken, "application/json"),
+    body: JSON.stringify({
+      brand: payload.brand,
+      source_type: payload.sourceType,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await getCrawlerResponseErrorMessage(
+        response,
+        "브랜드 자동 등록에 실패했습니다."
+      )
+    );
   }
 
   return response.json();
