@@ -57,8 +57,15 @@ async def auto_register_new_product_source(
     )
     source_row = get_new_product_source_by_source_key(discovered.source.source_key)
 
+    message = f"{discovered.source.brand} 소스를 자동 등록하고 수집했습니다."
+    if preview["fetched_products"] <= 0:
+        message = (
+            f"{discovered.source.brand} 공식 소스를 등록했습니다. "
+            "현재 수집된 신상품은 없지만, 다음 자동 수집부터 계속 추적합니다."
+        )
+
     return {
-        "message": f"{discovered.source.brand} 소스를 자동 등록하고 수집했습니다.",
+        "message": message,
         "source": source_row,
         "discovery": {
             "matched_url": discovered.matched_url,
