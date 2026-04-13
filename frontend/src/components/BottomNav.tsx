@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 function HomeIcon({ active }: { active: boolean }) {
@@ -87,22 +89,16 @@ export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
 
+  useEffect(() => {
+    navItems.forEach((item) => {
+      if (item.href !== pathname) {
+        router.prefetch(item.href);
+      }
+    });
+  }, [pathname, router]);
+
   const handleNav = (href: string) => {
-    if (href === pathname) return;
-
     Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
-
-    if (href === "/") {
-      router.replace("/");
-      return;
-    }
-
-    if (pathname === "/") {
-      router.push(href);
-      return;
-    }
-
-    router.replace(href);
   };
 
   return (
@@ -119,11 +115,23 @@ export default function BottomNav() {
             item.href === "/"
               ? pathname === "/"
               : pathname.startsWith(item.href);
+          const shouldReplace = pathname !== "/" || item.href === "/";
 
           return (
-            <button
+            <Link
               key={item.href}
-              onClick={() => handleNav(item.href)}
+              href={item.href}
+              prefetch
+              replace={shouldReplace}
+              aria-current={isActive ? "page" : undefined}
+              onClick={(event) => {
+                if (isActive) {
+                  event.preventDefault();
+                  return;
+                }
+
+                handleNav(item.href);
+              }}
               className={`group flex flex-col items-center justify-center rounded-lg px-3 py-0.5 transition-colors ${
                 isActive ? "text-primary" : "text-gray-400 hover:text-primary"
               }`}
@@ -132,7 +140,7 @@ export default function BottomNav() {
               <span className="relative mt-0.5 text-xs font-medium after:absolute after:bottom-0 after:left-0 after:h-px after:w-0 after:bg-primary after:transition-all after:duration-200 group-hover:after:w-full">
                 {item.label}
               </span>
-            </button>
+            </Link>
           );
         })}
       </div>

@@ -1,3 +1,5 @@
+import { unstable_cache } from "next/cache";
+
 import type { NewProduct, NewProductSource } from "./types";
 import type { NewProductSectorFilter, NewProductSectorKey } from "./new-product-taxonomy";
 import { createServerSupabaseClient } from "./supabase-server";
@@ -15,18 +17,25 @@ export interface NewProductBrandOption {
   count: number;
 }
 
-export interface NewProductListItem extends NewProduct {
-  source: Pick<
-    NewProductSource,
-    | "id"
-    | "source_key"
-    | "title"
-    | "brand"
-    | "source_type"
-    | "channel"
-    | "site_url"
-    | "discovery_metadata"
-  > | null;
+export interface NewProductListItem {
+  id: string;
+  name: string;
+  brand: string;
+  source_type: NewProduct["source_type"];
+  channel: string;
+  category: string | null;
+  summary: string | null;
+  image_url: string | null;
+  product_url: string | null;
+  published_at: string | null;
+  available_from: string | null;
+  available_to: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  is_food: boolean;
+  is_limited: boolean;
+  status: NewProduct["status"];
+  source: NewProductSourceSummary | null;
   effective_at: string;
   filter_at: string | null;
   date_label: "공개일" | "첫 수집";
@@ -49,6 +58,41 @@ interface NewProductsPageOptions {
   sector: NewProductSectorFilter;
   brand: string | null;
 }
+
+type NewProductSourceSummary = Pick<
+  NewProductSource,
+  | "id"
+  | "source_key"
+  | "title"
+  | "brand"
+  | "source_type"
+  | "channel"
+  | "site_url"
+  | "discovery_metadata"
+>;
+
+type NewProductQueryRow = Pick<
+  NewProduct,
+  | "id"
+  | "name"
+  | "brand"
+  | "source_type"
+  | "channel"
+  | "category"
+  | "summary"
+  | "image_url"
+  | "product_url"
+  | "published_at"
+  | "available_from"
+  | "available_to"
+  | "first_seen_at"
+  | "last_seen_at"
+  | "is_food"
+  | "is_limited"
+  | "status"
+> & {
+  source?: NewProductSourceSummary | null;
+};
 
 const PERIOD_DAYS: Record<Exclude<NewProductsPeriod, "all">, number> = {
   "1d": 1,
@@ -131,14 +175,63 @@ function buildBrandOptions(products: NewProductListItem[]): NewProductBrandOptio
     });
 }
 
+const getCachedVisibleNewProducts = unstable_cache(
+  async (): Promise<NewProductQueryRow[]> => {
+    const supabase = createServerSupabaseClient();
+
+    if (!supabase) {
+      return [];
+    }
+
+    const { data } = await supabase
+      .from("new_products")
+      .select(
+        [
+          "id",
+          "name",
+          "brand",
+          "source_type",
+          "channel",
+          "category",
+          "summary",
+          "image_url",
+          "product_url",
+          "published_at",
+          "available_from",
+          "available_to",
+          "first_seen_at",
+          "last_seen_at",
+          "is_food",
+          "is_limited",
+          "status",
+          "source:new_product_sources(id, source_key, title, brand, source_type, channel, site_url, discovery_metadata)",
+        ].join(", ")
+      )
+      .eq("status", "visible")
+      .eq("is_food", true)
+      .order("last_seen_at", { ascending: false })
+      .limit(300);
+
+    const rows = Array.isArray(data)
+      ? (data as unknown as NewProductQueryRow[])
+      : [];
+
+    return rows.filter(
+      (product) => product.source_type === "franchise"
+    );
+  },
+  ["visible-new-products"],
+  { revalidate: 300 }
+);
+
 export async function getNewProductsPageData({
   period,
   sector,
   brand,
 }: NewProductsPageOptions): Promise<NewProductsPageData> {
-  const supabase = createServerSupabaseClient();
+  const rows = await getCachedVisibleNewProducts();
 
-  if (!supabase) {
+  if (rows.length === 0) {
     return {
       products: [],
       sectorCounts: createEmptySectorCounts(),
@@ -149,33 +242,9 @@ export async function getNewProductsPageData({
     };
   }
 
-  const { data } = await supabase
-    .from("new_products")
-    .select(
-      "*, source:new_product_sources(id, source_key, title, brand, source_type, channel, site_url, discovery_metadata)"
-    )
-    .eq("status", "visible")
-    .eq("is_food", true)
-    .order("last_seen_at", { ascending: false })
-    .limit(300);
-
   const now = Date.now();
   const cutoffMs =
     period === "all" ? null : now - PERIOD_DAYS[period] * 24 * 60 * 60 * 1000;
-
-  const rows = ((data as (NewProduct & {
-    source?: Pick<
-      NewProductSource,
-      | "id"
-      | "source_key"
-      | "title"
-      | "brand"
-      | "source_type"
-      | "channel"
-      | "site_url"
-      | "discovery_metadata"
-    > | null;
-  })[]) ?? []).filter((product) => product.source_type === "franchise");
 
   const mapped = rows
     .map((product) => {
