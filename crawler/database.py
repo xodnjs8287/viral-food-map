@@ -28,8 +28,26 @@ def _warn_once(key: str, message: str, exc: Exception) -> None:
 
 def get_client() -> Client:
     global _client
-    if _client is None:
-        _client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    if _client is not None:
+        return _client
+
+    url = (settings.SUPABASE_URL or "").strip()
+    key = (settings.SUPABASE_KEY or "").strip()
+
+    if not url or not key:
+        missing = ", ".join(
+            name for name, val in [("SUPABASE_URL", url), ("SUPABASE_KEY", key)] if not val
+        )
+        raise RuntimeError(
+            f"Supabase credentials not configured ({missing}). "
+            "Set the environment variables before starting the server."
+        )
+
+    try:
+        _client = create_client(url, key)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to initialize Supabase client: {exc}") from exc
+
     return _client
 
 

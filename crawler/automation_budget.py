@@ -41,12 +41,21 @@ class AIBudgetReservation:
 
 def reserve_automation_ai_call(job_name: str, trigger: str) -> AIBudgetReservation:
     day_key = _today_key()
-    try:
-        used_today = count_ai_automation_usage(day_key)
-        use_fallback = False
-    except Exception:
-        used_today = _fallback_count(day_key)
-        use_fallback = True
+
+    # DB에서 오늘 사용량 조회 (1회 재시도)
+    db_available = True
+    used_today = 0
+    for attempt in range(2):
+        try:
+            used_today = count_ai_automation_usage(day_key)
+            break
+        except Exception as exc:
+            if attempt == 0:
+                logger.warning("AI budget DB check failed, retrying: %s", exc)
+            else:
+                logger.error("AI budget DB check unavailable after retry: %s", exc)
+                db_available = False
+                used_today = _fallback_count(day_key)
 
     if trigger != "scheduler":
         return AIBudgetReservation(
@@ -55,6 +64,21 @@ def reserve_automation_ai_call(job_name: str, trigger: str) -> AIBudgetReservati
             used_today=used_today,
             remaining_today=max(settings.AI_AUTOMATION_DAILY_LIMIT - used_today, 0),
             reason="non_scheduler_trigger",
+        )
+
+    # 스케줄러 트리거: DB 조회 실패 시 예산 초과 방지를 위해 차단
+    if not db_available:
+        logger.warning(
+            "AI automation blocked for %s: budget DB unavailable, using local fallback count %s",
+            job_name,
+            used_today,
+        )
+        return AIBudgetReservation(
+            allowed=False,
+            counted=False,
+            used_today=used_today,
+            remaining_today=max(settings.AI_AUTOMATION_DAILY_LIMIT - used_today, 0),
+            reason="budget_check_unavailable",
         )
 
     if used_today >= settings.AI_AUTOMATION_DAILY_LIMIT:
@@ -72,9 +96,8 @@ def reserve_automation_ai_call(job_name: str, trigger: str) -> AIBudgetReservati
             reason="daily_limit_reached",
         )
 
-    if use_fallback:
-        used_today = _fallback_reserve(day_key)
-    else:
+    # 사용량 DB 기록 (1회 재시도, 실패 시 로컬 카운터 fallback)
+    for attempt in range(2):
         try:
             insert_ai_automation_usage(
                 {
@@ -84,8 +107,13 @@ def reserve_automation_ai_call(job_name: str, trigger: str) -> AIBudgetReservati
                 }
             )
             used_today += 1
-        except Exception:
-            used_today = _fallback_reserve(day_key)
+            break
+        except Exception as exc:
+            if attempt == 0:
+                logger.warning("AI budget DB insert failed, retrying: %s", exc)
+            else:
+                logger.error("AI budget DB insert unavailable after retry, using local fallback: %s", exc)
+                used_today = _fallback_reserve(day_key)
 
     return AIBudgetReservation(
         allowed=True,

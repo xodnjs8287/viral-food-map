@@ -24,6 +24,8 @@ trend_detection_lock = threading.Lock()
 keyword_discovery_lock = threading.Lock()
 store_update_lock = threading.Lock()
 yomechu_enrich_lock = threading.Lock()
+_trend_detection_queue_lock = threading.Lock()
+_keyword_discovery_queue_lock = threading.Lock()
 trend_detection_task: asyncio.Task | None = None
 keyword_discovery_thread: threading.Thread | None = None
 trend_detection_status: dict[str, object | None] = {
@@ -352,54 +354,56 @@ def _run_keyword_discovery_thread(trigger: str) -> None:
 def queue_keyword_discovery_job(trigger: str = "manual") -> dict[str, object]:
     global keyword_discovery_thread
 
-    if keyword_discovery_lock.locked() or (
-        keyword_discovery_thread and keyword_discovery_thread.is_alive()
-    ):
+    with _keyword_discovery_queue_lock:
+        if keyword_discovery_lock.locked() or (
+            keyword_discovery_thread and keyword_discovery_thread.is_alive()
+        ):
+            return {
+                "accepted": False,
+                "status": "running",
+                "message": "Keyword discovery is already running.",
+                "job": get_keyword_discovery_status(),
+            }
+
+        _mark_keyword_discovery_queued(trigger)
+        keyword_discovery_thread = threading.Thread(
+            target=_run_keyword_discovery_thread,
+            args=(trigger,),
+            name="keyword-discovery",
+            daemon=True,
+        )
+        keyword_discovery_thread.start()
         return {
-            "accepted": False,
-            "status": "running",
-            "message": "Keyword discovery is already running.",
+            "accepted": True,
+            "status": "queued",
+            "message": "Keyword discovery queued.",
             "job": get_keyword_discovery_status(),
         }
-
-    _mark_keyword_discovery_queued(trigger)
-    keyword_discovery_thread = threading.Thread(
-        target=_run_keyword_discovery_thread,
-        args=(trigger,),
-        name="keyword-discovery",
-        daemon=True,
-    )
-    keyword_discovery_thread.start()
-    return {
-        "accepted": True,
-        "status": "queued",
-        "message": "Keyword discovery queued.",
-        "job": get_keyword_discovery_status(),
-    }
 
 
 def queue_trend_detection_job(trigger: str = "manual") -> dict[str, object]:
     global trend_detection_task
 
-    if trend_detection_lock.locked() or (
-        trend_detection_task and not trend_detection_task.done()
-    ):
+    with _trend_detection_queue_lock:
+        if trend_detection_lock.locked() or (
+            trend_detection_task and not trend_detection_task.done()
+        ):
+            return {
+                "accepted": False,
+                "status": "running",
+                "message": "Trend detection is already running.",
+                "job": get_trend_detection_status(),
+            }
+
+        _mark_trend_detection_queued(trigger)
+        trend_detection_task = asyncio.create_task(run_trend_detection_job(trigger=trigger))
+        trend_detection_task.add_done_callback(_handle_trend_detection_task_result)
         return {
-            "accepted": False,
-            "status": "running",
-            "message": "Trend detection is already running.",
+            "accepted": True,
+            "status": "queued",
+            "message": "Trend detection queued.",
             "job": get_trend_detection_status(),
         }
-
-    _mark_trend_detection_queued(trigger)
-    trend_detection_task = asyncio.create_task(run_trend_detection_job(trigger=trigger))
-    trend_detection_task.add_done_callback(_handle_trend_detection_task_result)
-    return {
-        "accepted": True,
-        "status": "queued",
-        "message": "Trend detection queued.",
-        "job": get_trend_detection_status(),
-    }
 
 
 async def run_trend_detection_job(trigger: str = "scheduler") -> dict:

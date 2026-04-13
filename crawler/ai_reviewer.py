@@ -195,7 +195,13 @@ def _extract_json_blob(content: str) -> dict[str, Any] | list[dict[str, Any]]:
         raise AIReviewError("no JSON payload found in AI response")
 
     start = min(start_positions)
-    end = max(stripped.rfind("}"), stripped.rfind("]"))
+    end_brace = stripped.rfind("}")
+    end_bracket = stripped.rfind("]")
+
+    if end_brace < 0 and end_bracket < 0:
+        raise AIReviewError("incomplete JSON payload in AI response (no closing bracket)")
+
+    end = max(end_brace, end_bracket)
     if end < start:
         raise AIReviewError("incomplete JSON payload in AI response")
 
