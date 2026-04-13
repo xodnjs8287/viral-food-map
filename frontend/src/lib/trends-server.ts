@@ -29,7 +29,8 @@ export const getActiveTrends = cache(async (): Promise<TrendWithStoreCount[]> =>
     .from("trends")
     .select("*, stores(count)")
     .in("status", ["rising", "active", "declining"])
-    .order("peak_score", { ascending: false });
+    .order("peak_score", { ascending: false })
+    .order("id", { ascending: true });
 
   return (
     data?.map((trend: any) => ({

@@ -22,6 +22,7 @@ async def list_trends():
         .select("*, stores(count)")
         .in_("status", ["rising", "active", "declining"])
         .order("peak_score", desc=True)
+        .order("id", desc=False)
         .execute()
         .data
     )

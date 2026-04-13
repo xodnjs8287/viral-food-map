@@ -188,6 +188,7 @@ def _list_candidate_trends() -> list[dict[str, Any]]:
         .in_("status", ["rising", "active"])
         .order("peak_score", desc=True)
         .order("detected_at", desc=True)
+        .order("id", desc=False)
         .execute()
         .data
     ) or []

@@ -57,7 +57,8 @@ export default function ReportForm({ initialTrends }: ReportFormProps) {
       .from("trends")
       .select("id, name, category, status")
       .in("status", ["rising", "active", "declining"])
-      .order("peak_score", { ascending: false });
+      .order("peak_score", { ascending: false })
+      .order("id", { ascending: true });
 
     if (error) {
       setTrendsError("트렌드 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");

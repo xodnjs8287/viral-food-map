@@ -126,6 +126,10 @@ def upsert_trend(trend_data: dict):
         )
 
 
+RANKED_TREND_STATUSES = ["rising", "active", "declining"]
+MIN_ACTIVE_TRENDS = 10
+
+
 def snapshot_previous_ranks() -> None:
     """활성 트렌드의 현재 순위를 previous_rank에 저장 (다음 사이클 비교용)."""
     try:
@@ -133,8 +137,9 @@ def snapshot_previous_ranks() -> None:
             get_client()
             .table("trends")
             .select("id")
-            .in_("status", ["rising", "active", "declining"])
+            .in_("status", RANKED_TREND_STATUSES)
             .order("peak_score", desc=True)
+            .order("id", desc=False)
             .execute()
             .data
         )
@@ -308,18 +313,19 @@ def deactivate_keywords(keywords: list[str]):
         )
         return None
 
-
-MIN_ACTIVE_TRENDS = 10
-
-
-def update_trend_status(trend_id: str, status: str):
-    if status == "inactive":
+def update_trend_status(
+    trend_id: str,
+    status: str,
+    *,
+    enforce_min_active: bool = True,
+) -> bool:
+    if status == "inactive" and enforce_min_active:
         try:
             active_count = (
                 get_client()
                 .table("trends")
                 .select("id", count="exact", head=True)
-                .in_("status", ["rising", "active", "declining"])
+                .in_("status", RANKED_TREND_STATUSES)
                 .execute()
             ).count or 0
             if active_count <= MIN_ACTIVE_TRENDS:
@@ -329,17 +335,18 @@ def update_trend_status(trend_id: str, status: str):
                     MIN_ACTIVE_TRENDS,
                     trend_id,
                 )
-                return None
+                return False
         except Exception as exc:
             logger.warning("활성 트렌드 수 조회 실패, 비활성화 진행: %s", exc)
 
-    return (
+    (
         get_client()
         .table("trends")
         .update({"status": status})
         .eq("id", trend_id)
         .execute()
     )
+    return True
 
 
 def update_trend_verdict_counts(

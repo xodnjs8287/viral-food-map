@@ -320,7 +320,8 @@ export default function HomePageClient({
       .from("trends")
       .select("*, stores(count)")
       .in("status", ["rising", "active", "declining"])
-      .order("peak_score", { ascending: false });
+      .order("peak_score", { ascending: false })
+      .order("id", { ascending: true });
 
     if (error || !data) {
       // 에러 시 기존 데이터 유지, 빈 화면 방지

@@ -60,7 +60,8 @@ export default function MapPageClient({ initialTrends }: MapPageClientProps) {
       .from("trends")
       .select("*")
       .in("status", ["rising", "active", "declining"])
-      .order("peak_score", { ascending: false });
+      .order("peak_score", { ascending: false })
+      .order("id", { ascending: true });
 
     if (data) {
       setTrends(data as Trend[]);

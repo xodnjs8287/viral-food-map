@@ -484,8 +484,8 @@ def _deactivate_stale_trends(confirmed_keywords: list[str]) -> list[str]:
         if detected_at and detected_at > cutoff:
             continue
 
-        update_trend_status(trend_id, "inactive")
-        deactivated_trends.append(keyword)
+        if update_trend_status(trend_id, "inactive"):
+            deactivated_trends.append(keyword)
 
     return deactivated_trends
 
@@ -593,8 +593,8 @@ def _deactivate_invalid_active_trends(active_trends: list[dict]) -> list[str]:
         if is_food_specific_keyword(keyword):
             continue
 
-        update_trend_status(trend_id, "inactive")
-        deactivated_trends.append(keyword)
+        if update_trend_status(trend_id, "inactive", enforce_min_active=False):
+            deactivated_trends.append(keyword)
 
     return deactivated_trends
 
@@ -619,10 +619,11 @@ def _deactivate_rejected_active_trends(rejected_keywords: list[str]) -> list[str
 
         current_status = trend.get("status")
         if current_status in ("rising", "active"):
-            update_trend_status(trend_id, "declining")
+            updated = update_trend_status(trend_id, "declining")
         else:
-            update_trend_status(trend_id, "inactive")
-        deactivated_trends.append(keyword)
+            updated = update_trend_status(trend_id, "inactive")
+        if updated:
+            deactivated_trends.append(keyword)
 
     return dedupe_terms(deactivated_trends)
 
@@ -772,8 +773,12 @@ def _merge_duplicate_trend_stores(primary_trend_id: str, duplicate_trends: list[
         if records_to_insert:
             insert_stores(records_to_insert)
             records_to_insert = []
-        delete_stores_by_trend_id(duplicate_trend_id)
-        update_trend_status(duplicate_trend_id, "inactive")
+        if update_trend_status(
+            duplicate_trend_id,
+            "inactive",
+            enforce_min_active=False,
+        ):
+            delete_stores_by_trend_id(duplicate_trend_id)
 
 
 def _collapse_cached_active_duplicates(
