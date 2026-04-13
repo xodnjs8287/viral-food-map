@@ -696,10 +696,10 @@ export default function HomePageClient({
 
                 function RankDelta({ trend, rank }: { trend: Trend; rank: number }) {
                   const c = rankChange(trend, rank);
-                  if (c.type === "new") return <span className="text-[10px] font-semibold text-blue-500">NEW</span>;
-                  if (c.type === "up") return <span className="text-[10px] font-semibold text-red-500">▲{c.delta}</span>;
-                  if (c.type === "down") return <span className="text-[10px] font-semibold text-blue-500">▼{c.delta}</span>;
-                  return <span className="text-[10px] text-gray-300">-</span>;
+                  if (c.type === "new") return <span className="inline-flex items-center rounded-full bg-blue-50 border border-blue-200 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">NEW</span>;
+                  if (c.type === "up") return <span className="inline-flex items-center rounded-full bg-red-50 border border-red-200 px-1.5 py-0.5 text-[10px] font-semibold text-red-500">▲{c.delta}</span>;
+                  if (c.type === "down") return <span className="inline-flex items-center rounded-full bg-blue-50 border border-blue-200 px-1.5 py-0.5 text-[10px] font-semibold text-blue-500">▼{c.delta}</span>;
+                  return <span className="inline-flex items-center rounded-full bg-gray-50 border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-400">-</span>;
                 }
 
                 return (
