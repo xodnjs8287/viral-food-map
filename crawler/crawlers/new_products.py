@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -96,6 +96,10 @@ def _parse_dot_date(value: str | None) -> str | None:
     return _parse_datetime(value, ("%Y.%m.%d",))
 
 
+def _parse_short_dot_date(value: str | None) -> str | None:
+    return _parse_datetime(value, ("%y.%m.%d",))
+
+
 def _parse_dot_date_end(value: str | None) -> str | None:
     parsed = _parse_dot_date(value)
     if not parsed:
@@ -107,6 +111,10 @@ def _parse_dot_date_end(value: str | None) -> str | None:
 
 def _parse_dash_date(value: str | None) -> str | None:
     return _parse_datetime(value, ("%Y-%m-%d",))
+
+
+def _parse_dash_datetime(value: str | None) -> str | None:
+    return _parse_datetime(value, ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"))
 
 
 def _parse_dash_date_end(value: str | None) -> str | None:
@@ -200,6 +208,41 @@ def _has_new_product_keyword(text: str) -> bool:
     return any(keyword in text for keyword in NEW_PRODUCT_KEYWORDS)
 
 
+def _contains_any_keyword(text: str, keywords: tuple[str, ...] | list[str]) -> bool:
+    return any(keyword and keyword in text for keyword in keywords)
+
+
+def _passes_title_filters(
+    title: str,
+    *,
+    require_keyword: bool = True,
+    allow_food_names_without_keyword: bool = False,
+    short_name_max_length: int = 16,
+    name_hint_keywords: tuple[str, ...] | list[str] = (),
+    title_block_keywords: tuple[str, ...] | list[str] = (),
+) -> bool:
+    normalized_title = _normalize_text(title)
+    if not normalized_title or not _looks_like_food(normalized_title):
+        return False
+
+    if _contains_any_keyword(normalized_title, title_block_keywords):
+        return False
+
+    if _has_new_product_keyword(normalized_title):
+        return True
+
+    if require_keyword and not allow_food_names_without_keyword:
+        return False
+
+    if short_name_max_length > 0 and len(normalized_title) > short_name_max_length:
+        return False
+
+    if name_hint_keywords and not _contains_any_keyword(normalized_title, name_hint_keywords):
+        return False
+
+    return True
+
+
 def _normalize_brand_label(label: str) -> str:
     normalized = re.sub(r"\s+", " ", label).strip()
     normalized = re.sub(r"\s+(배달.*|픽업.*|매장.*)$", "", normalized).strip()
@@ -219,8 +262,12 @@ def _parse_date_value(value: str | None, format_name: str | None) -> str | None:
         return _parse_compact_date(value)
     if format_name == "dash":
         return _parse_dash_date(value)
+    if format_name == "dash_datetime":
+        return _parse_dash_datetime(value)
     if format_name == "dot":
         return _parse_dot_date(value)
+    if format_name == "short_dot":
+        return _parse_short_dot_date(value)
     if format_name == "unix_seconds":
         return _parse_unix_seconds(value)
     return value if value else None
@@ -231,9 +278,45 @@ def _parse_date_end_value(value: str | None, format_name: str | None) -> str | N
         return _parse_compact_date_end(value)
     if format_name == "dash":
         return _parse_dash_date_end(value)
+    if format_name == "dash_datetime":
+        return _parse_dash_datetime(value)
     if format_name == "dot":
         return _parse_dot_date_end(value)
+    if format_name == "short_dot":
+        return _parse_short_dot_date(value)
     return value if value else None
+
+
+def _extract_date_range_values(
+    value: str | None,
+    format_name: str | None,
+) -> tuple[str | None, str | None]:
+    if not value:
+        return None, None
+
+    date_matches = re.findall(r"\d{2,4}[.-]\d{1,2}[.-]\d{1,2}", value)
+    if not date_matches:
+        return None, None
+
+    available_from = _parse_date_value(date_matches[0], format_name)
+    available_to = (
+        _parse_date_end_value(date_matches[1], format_name)
+        if len(date_matches) > 1
+        else None
+    )
+    return available_from, available_to
+
+
+def _get_nested_value(payload: dict[str, Any], path: str | None) -> Any:
+    if not path:
+        return None
+
+    current: Any = payload
+    for part in path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
 
 
 def _extract_direct_text(element: BeautifulSoup | Any) -> str:
@@ -271,9 +354,22 @@ def _build_absolute_url(base_url: str, maybe_relative_url: str | None) -> str | 
 
 
 async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
-    response = await client.get(url, headers=REQUEST_HEADERS)
-    response.raise_for_status()
-    return response.text
+    try:
+        response = await client.get(url, headers=REQUEST_HEADERS)
+        response.raise_for_status()
+        return response.text
+    except httpx.HTTPError:
+        async with httpx.AsyncClient(
+            timeout=client.timeout,
+            follow_redirects=True,
+            verify=False,
+        ) as insecure_client:
+            insecure_response = await insecure_client.get(
+                url,
+                headers=REQUEST_HEADERS,
+            )
+        insecure_response.raise_for_status()
+        return insecure_response.text
 
 
 async def _fetch_soup(client: httpx.AsyncClient, url: str) -> BeautifulSoup:
@@ -465,6 +561,22 @@ def _extract_dominos_detail_url(href: str | None, *, base_url: str) -> str | Non
         return urljoin("https://web.dominos.co.kr/goods/", detail_match.group(1))
 
     return _build_absolute_url(base_url, href)
+
+
+def _build_stable_external_id(
+    *,
+    source: NewProductSourceDefinition,
+    detail_url: str | None,
+    image_url: str | None,
+    name: str,
+) -> str:
+    if detail_url:
+        parsed = urlparse(detail_url)
+        query = f"?{parsed.query}" if parsed.query else ""
+        return f"url::{parsed.netloc.lower()}{parsed.path}{query}"
+    if image_url:
+        return f"img::{image_url}"
+    return f"{source.source_key}::{_normalize_text(name)}"
 
 
 def _parse_image_timestamp(
@@ -839,6 +951,310 @@ async def _crawl_kfc_new_menu(
                 is_food=True,
                 raw_payload={
                     "listed_period": period_text,
+                },
+            )
+        )
+
+    return products
+
+
+async def _crawl_html_card_news_grid(
+    client: httpx.AsyncClient,
+    source: NewProductSourceDefinition,
+) -> list[ParsedNewProduct]:
+    config = _get_parser_config(source)
+    soup = await _fetch_soup(client, source.crawl_url)
+    products: list[ParsedNewProduct] = []
+    max_items = int(config.get("max_items", 40))
+    item_selector = str(config.get("item_selector") or "")
+    detail_link_selector = str(config.get("detail_link_selector") or "a[href]")
+    title_selector = str(config.get("title_selector") or "")
+    date_selector = str(config.get("date_selector") or "")
+    date_format = str(config.get("date_format") or "dash")
+    default_category = str(config.get("default_category") or "신메뉴 소식")
+    summary_fallback = str(config.get("summary_fallback") or "{brand} 공식 소식")
+    require_keyword = bool(config.get("require_keyword", True))
+    allow_food_names_without_keyword = bool(
+        config.get("allow_food_names_without_keyword", False)
+    )
+    short_name_max_length = int(config.get("short_name_max_length", 16))
+    name_hint_keywords = tuple(config.get("name_hint_keywords") or ())
+    title_block_keywords = tuple(config.get("title_block_keywords") or ())
+
+    if not item_selector or not title_selector or not date_selector:
+        return []
+
+    for item in soup.select(item_selector)[:max_items]:
+        title_element = item.select_one(title_selector)
+        title = _normalize_text(title_element.get_text(" ", strip=True) if title_element else "")
+        if not _passes_title_filters(
+            title,
+            require_keyword=require_keyword,
+            allow_food_names_without_keyword=allow_food_names_without_keyword,
+            short_name_max_length=short_name_max_length,
+            name_hint_keywords=name_hint_keywords,
+            title_block_keywords=title_block_keywords,
+        ):
+            continue
+
+        date_text = _normalize_text(
+            item.select_one(date_selector).get_text(" ", strip=True)
+            if item.select_one(date_selector)
+            else ""
+        )
+        published_at = _parse_date_value(date_text, date_format)
+        if published_at and not _is_recent_or_active(published_at):
+            continue
+
+        detail_link = item.select_one(detail_link_selector)
+        detail_url = _build_absolute_url(
+            source.site_url,
+            detail_link.get("href") if detail_link else None,
+        )
+        image_url = _extract_image_from_element(item, source=source, config=config)
+        external_id = _build_stable_external_id(
+            source=source,
+            detail_url=detail_url,
+            image_url=image_url,
+            name=title,
+        )
+
+        products.append(
+            ParsedNewProduct(
+                external_id=external_id,
+                name=title,
+                brand=source.brand,
+                source_type=source.source_type,
+                channel=source.channel,
+                category=default_category,
+                summary=_format_template_value(
+                    summary_fallback,
+                    brand=source.brand,
+                    category=default_category,
+                ),
+                image_url=image_url,
+                product_url=detail_url or source.site_url,
+                published_at=published_at,
+                available_from=published_at,
+                available_to=None,
+                is_limited=False,
+                is_food=True,
+                raw_payload={
+                    "date_text": date_text or None,
+                },
+            )
+        )
+
+    return products
+
+
+async def _crawl_html_event_card_list(
+    client: httpx.AsyncClient,
+    source: NewProductSourceDefinition,
+) -> list[ParsedNewProduct]:
+    config = _get_parser_config(source)
+    soup = await _fetch_soup(client, source.crawl_url)
+    products: list[ParsedNewProduct] = []
+    item_selector = str(config.get("item_selector") or "")
+    title_selector = str(config.get("title_selector") or "")
+    date_selector = str(config.get("date_selector") or "")
+    date_format = str(config.get("date_format") or "dot")
+    image_selector = str(config.get("image_selector") or "img")
+    onclick_pattern = str(config.get("onclick_pattern") or "")
+    detail_url_template = str(config.get("detail_url_template") or source.site_url)
+    default_category = str(config.get("default_category") or "이벤트")
+    summary_fallback = str(config.get("summary_fallback") or "{brand} 공식 이벤트")
+    max_items = int(config.get("max_items", 40))
+    allow_food_names_without_keyword = bool(
+        config.get("allow_food_names_without_keyword", True)
+    )
+    short_name_max_length = int(config.get("short_name_max_length", 16))
+    name_hint_keywords = tuple(config.get("name_hint_keywords") or ())
+    title_block_keywords = tuple(config.get("title_block_keywords") or ())
+
+    if not item_selector or not title_selector or not date_selector:
+        return []
+
+    for item in soup.select(item_selector)[:max_items]:
+        title = _normalize_text(
+            item.select_one(title_selector).get_text(" ", strip=True)
+            if item.select_one(title_selector)
+            else ""
+        )
+        if not _passes_title_filters(
+            title,
+            require_keyword=True,
+            allow_food_names_without_keyword=allow_food_names_without_keyword,
+            short_name_max_length=short_name_max_length,
+            name_hint_keywords=name_hint_keywords,
+            title_block_keywords=title_block_keywords,
+        ):
+            continue
+
+        anchor = item.find("a")
+        onclick = anchor.get("onclick", "") if anchor else ""
+        external_id = ""
+        if onclick_pattern:
+            match = re.search(onclick_pattern, onclick)
+            if match:
+                external_id = match.group("id")
+
+        date_text = _normalize_text(
+            item.select_one(date_selector).get_text(" ", strip=True)
+            if item.select_one(date_selector)
+            else ""
+        )
+        date_text = re.sub(r"\s+", " ", date_text)
+        open_ended = "~" in date_text and date_text.strip().endswith("~")
+        available_from, available_to = _extract_date_range_values(date_text, date_format)
+        if not available_from:
+            available_from = _parse_date_value(date_text, date_format)
+        if open_ended:
+            available_to = None
+        if available_from and not _is_recent_or_active(available_from, available_to):
+            continue
+
+        detail_url = _format_template_value(
+            detail_url_template,
+            external_id=external_id or "",
+            brand=source.brand,
+        ) or source.site_url
+        image_element = item.select_one(image_selector)
+        image_url = _build_absolute_url(
+            source.site_url,
+            image_element.get("src") if image_element else None,
+        )
+        final_external_id = external_id or _build_stable_external_id(
+            source=source,
+            detail_url=detail_url,
+            image_url=image_url,
+            name=title,
+        )
+
+        products.append(
+            ParsedNewProduct(
+                external_id=final_external_id,
+                name=title,
+                brand=source.brand,
+                source_type=source.source_type,
+                channel=source.channel,
+                category=default_category,
+                summary=_format_template_value(
+                    summary_fallback,
+                    brand=source.brand,
+                    category=default_category,
+                ),
+                image_url=image_url,
+                product_url=detail_url,
+                published_at=available_from,
+                available_from=available_from,
+                available_to=available_to,
+                is_limited=open_ended or available_to is not None,
+                is_food=True,
+                raw_payload={
+                    "date_text": date_text or None,
+                    "onclick": onclick or None,
+                },
+            )
+        )
+
+    return products
+
+
+async def _crawl_html_media_event_list(
+    client: httpx.AsyncClient,
+    source: NewProductSourceDefinition,
+) -> list[ParsedNewProduct]:
+    config = _get_parser_config(source)
+    soup = await _fetch_soup(client, source.crawl_url)
+    products: list[ParsedNewProduct] = []
+    item_selector = str(config.get("item_selector") or "")
+    detail_link_selector = str(config.get("detail_link_selector") or "a[href]")
+    title_selector = str(config.get("title_selector") or "")
+    date_selector = str(config.get("date_selector") or "")
+    image_selector = str(config.get("image_selector") or "img")
+    date_format = str(config.get("date_format") or "dot")
+    default_category = str(config.get("default_category") or "이벤트")
+    summary_fallback = str(config.get("summary_fallback") or "{brand} 공식 이벤트")
+    max_items = int(config.get("max_items", 40))
+    require_keyword = bool(config.get("require_keyword", True))
+    allow_food_names_without_keyword = bool(
+        config.get("allow_food_names_without_keyword", False)
+    )
+    short_name_max_length = int(config.get("short_name_max_length", 16))
+    name_hint_keywords = tuple(config.get("name_hint_keywords") or ())
+    title_block_keywords = tuple(config.get("title_block_keywords") or ())
+
+    if not item_selector or not title_selector or not date_selector:
+        return []
+
+    for item in soup.select(item_selector)[:max_items]:
+        title = _normalize_text(
+            item.select_one(title_selector).get_text(" ", strip=True)
+            if item.select_one(title_selector)
+            else ""
+        )
+        if not _passes_title_filters(
+            title,
+            require_keyword=require_keyword,
+            allow_food_names_without_keyword=allow_food_names_without_keyword,
+            short_name_max_length=short_name_max_length,
+            name_hint_keywords=name_hint_keywords,
+            title_block_keywords=title_block_keywords,
+        ):
+            continue
+
+        detail_link = item.select_one(detail_link_selector)
+        detail_href = detail_link.get("href") if detail_link else None
+        if detail_href and detail_href.startswith("javascript:"):
+            detail_href = None
+        detail_url = _build_absolute_url(source.site_url, detail_href) or source.site_url
+
+        date_text = _normalize_text(
+            item.select_one(date_selector).get_text(" ", strip=True)
+            if item.select_one(date_selector)
+            else ""
+        )
+        available_from, available_to = _extract_date_range_values(date_text, date_format)
+        if not available_from:
+            available_from = _parse_date_value(date_text, date_format)
+        if available_from and not _is_recent_or_active(available_from, available_to):
+            continue
+
+        image_element = item.select_one(image_selector)
+        image_url = _build_absolute_url(
+            source.site_url,
+            image_element.get("src") if image_element else None,
+        )
+        external_id = _build_stable_external_id(
+            source=source,
+            detail_url=detail_url,
+            image_url=image_url,
+            name=title,
+        )
+
+        products.append(
+            ParsedNewProduct(
+                external_id=external_id,
+                name=title,
+                brand=source.brand,
+                source_type=source.source_type,
+                channel=source.channel,
+                category=default_category,
+                summary=_format_template_value(
+                    summary_fallback,
+                    brand=source.brand,
+                    category=default_category,
+                ),
+                image_url=image_url,
+                product_url=detail_url,
+                published_at=available_from,
+                available_from=available_from,
+                available_to=available_to,
+                is_limited=available_to is not None,
+                is_food=True,
+                raw_payload={
+                    "date_text": date_text or None,
                 },
             )
         )
@@ -1280,6 +1696,117 @@ async def _crawl_json_menu_feed(
     return list(products_by_id.values())
 
 
+async def _crawl_json_event_feed(
+    client: httpx.AsyncClient,
+    source: NewProductSourceDefinition,
+) -> list[ParsedNewProduct]:
+    config = _get_parser_config(source)
+    endpoint_url = str(config.get("endpoint_url") or source.crawl_url)
+    http_method = str(config.get("http_method") or "POST").upper()
+    request_form = dict(config.get("request_form") or {})
+    message_payload = config.get("message_payload")
+    message_field_name = str(config.get("message_field_name") or "message")
+    list_path = str(config.get("list_path") or "")
+    id_field = str(config.get("id_field") or "id")
+    title_field = str(config.get("title_field") or "title")
+    image_field = str(config.get("image_field") or "image")
+    fallback_image_field = str(config.get("fallback_image_field") or "")
+    start_date_field = str(config.get("start_date_field") or "")
+    end_date_field = str(config.get("end_date_field") or "")
+    start_date_format = str(config.get("start_date_format") or "")
+    end_date_format = str(config.get("end_date_format") or "")
+    detail_url_template = str(config.get("detail_url_template") or source.site_url)
+    default_category = str(config.get("default_category") or "이벤트")
+    summary_fallback = str(config.get("summary_fallback") or "{brand} 공식 이벤트")
+    max_items = int(config.get("max_items", 40))
+    require_keyword = bool(config.get("require_keyword", True))
+    allow_food_names_without_keyword = bool(
+        config.get("allow_food_names_without_keyword", False)
+    )
+    short_name_max_length = int(config.get("short_name_max_length", 16))
+    name_hint_keywords = tuple(config.get("name_hint_keywords") or ())
+    title_block_keywords = tuple(config.get("title_block_keywords") or ())
+
+    if message_payload is not None:
+        request_form[message_field_name] = json.dumps(
+            message_payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+    response = await client.request(
+        http_method,
+        endpoint_url,
+        data=request_form or None,
+        headers={
+            **REQUEST_HEADERS,
+            "Referer": source.crawl_url,
+        },
+    )
+    response.raise_for_status()
+    payload = response.json()
+    items = _get_nested_value(payload, list_path)
+    if not isinstance(items, list):
+        return []
+
+    products: list[ParsedNewProduct] = []
+    for item in items[:max_items]:
+        external_id = _normalize_text(str(item.get(id_field) or ""))
+        title = _normalize_text(str(item.get(title_field) or ""))
+        if not external_id or not _passes_title_filters(
+            title,
+            require_keyword=require_keyword,
+            allow_food_names_without_keyword=allow_food_names_without_keyword,
+            short_name_max_length=short_name_max_length,
+            name_hint_keywords=name_hint_keywords,
+            title_block_keywords=title_block_keywords,
+        ):
+            continue
+
+        published_at = _parse_date_value(str(item.get(start_date_field) or ""), start_date_format)
+        available_to = _parse_date_end_value(str(item.get(end_date_field) or ""), end_date_format)
+        if not _is_recent_or_active(published_at, available_to):
+            continue
+
+        image_value = str(item.get(image_field) or "")
+        if not image_value and fallback_image_field:
+            image_value = str(item.get(fallback_image_field) or "")
+        product_url = _format_template_value(
+            detail_url_template,
+            external_id=external_id,
+            brand=source.brand,
+        ) or source.site_url
+
+        products.append(
+            ParsedNewProduct(
+                external_id=external_id,
+                name=title,
+                brand=source.brand,
+                source_type=source.source_type,
+                channel=source.channel,
+                category=default_category,
+                summary=_format_template_value(
+                    summary_fallback,
+                    brand=source.brand,
+                    category=default_category,
+                ),
+                image_url=_build_absolute_url(source.site_url, image_value),
+                product_url=product_url,
+                published_at=published_at,
+                available_from=published_at,
+                available_to=available_to,
+                is_limited=available_to is not None,
+                is_food=True,
+                raw_payload={
+                    "start_date": item.get(start_date_field) if start_date_field else None,
+                    "end_date": item.get(end_date_field) if end_date_field else None,
+                },
+            )
+        )
+
+    return products
+
+
 async def _crawl_mega_seasonal_menu(
     client: httpx.AsyncClient,
     source: NewProductSourceDefinition,
@@ -1377,6 +1904,12 @@ async def _crawl_source(
         return await _crawl_paikdabang_news(client, source)
     if source.parser_type == "html_board_news_table":
         return await _crawl_html_board_news_table(client, source)
+    if source.parser_type == "html_card_news_grid":
+        return await _crawl_html_card_news_grid(client, source)
+    if source.parser_type == "html_event_card_list":
+        return await _crawl_html_event_card_list(client, source)
+    if source.parser_type == "html_media_event_list":
+        return await _crawl_html_media_event_list(client, source)
     if source.parser_type == "kfc_new_menu":
         return await _crawl_kfc_new_menu(client, source)
     if source.parser_type == "html_paged_new_menu":
@@ -1387,6 +1920,8 @@ async def _crawl_source(
         return await _crawl_mcdonalds_promotion(client, source)
     if source.parser_type == "json_menu_feed":
         return await _crawl_json_menu_feed(client, source)
+    if source.parser_type == "json_event_feed":
+        return await _crawl_json_event_feed(client, source)
     if source.parser_type == "mega_seasonal_menu":
         return await _crawl_mega_seasonal_menu(client, source)
     return []

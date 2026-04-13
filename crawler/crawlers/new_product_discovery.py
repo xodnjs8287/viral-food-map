@@ -19,9 +19,24 @@ REQUEST_HEADERS = {
     )
 }
 SEARCH_RESULT_LIMIT = 6
+SEARCH_ROOT_QUERY_KEYWORDS = {
+    "franchise": ("공식", "홈페이지", "브랜드"),
+    "convenience": ("공식", "홈페이지"),
+}
 DISCOVERY_QUERY_KEYWORDS = {
     "franchise": ("신메뉴", "신제품", "메뉴", "프로모션", "이벤트"),
     "convenience": ("신상품", "신상", "도시락", "삼각김밥", "샌드위치"),
+}
+BRAND_ALIAS_SOURCE_KEYS = {
+    "롯데리아": "lotteeatz_launch_events",
+    "엔제리너스": "lotteeatz_launch_events",
+    "크리스피크림": "lotteeatz_launch_events",
+    "메가커피": "mega_seasonal_menu",
+    "메가엠지씨커피": "mega_seasonal_menu",
+    "빽다방커피": "paikdabang_news",
+    "컴포즈": "composecoffee_event",
+    "버거킹코리아": "burgerking_event_feed",
+    "공차코리아": "gongcha_event_list",
 }
 RESULT_HOST_BLOCKLIST = {
     "blog.naver.com",
@@ -75,6 +90,11 @@ def _normalize_url(url: str) -> str:
     parsed = urlparse(url)
     path = parsed.path.rstrip("/") or "/"
     return f"{parsed.scheme}://{parsed.netloc.lower()}{path}"
+
+
+def _get_root_url(url: str) -> str:
+    parsed = urlparse(url)
+    return f"{parsed.scheme}://{parsed.netloc.lower()}"
 
 
 def _get_host(url: str) -> str:
@@ -183,7 +203,11 @@ async def _search_candidate_urls(
     urls: list[str] = []
     seen: set[str] = set()
 
-    for keyword in DISCOVERY_QUERY_KEYWORDS[source_type]:
+    query_keywords = (
+        *DISCOVERY_QUERY_KEYWORDS[source_type],
+        *SEARCH_ROOT_QUERY_KEYWORDS[source_type],
+    )
+    for keyword in query_keywords:
         query = f"{brand} {keyword}"
         queries.append(query)
         response = await client.get(
@@ -194,11 +218,12 @@ async def _search_candidate_urls(
         response.raise_for_status()
 
         for url in _extract_search_result_urls(response.text)[:SEARCH_RESULT_LIMIT]:
-            normalized = _normalize_url(url)
-            if normalized in seen:
-                continue
-            seen.add(normalized)
-            urls.append(url)
+            for candidate in (url, _get_root_url(url)):
+                normalized = _normalize_url(candidate)
+                if normalized in seen:
+                    continue
+                seen.add(normalized)
+                urls.append(candidate)
 
     return queries, urls
 
@@ -228,6 +253,15 @@ def _collect_internal_links(soup: BeautifulSoup, base_url: str) -> list[str]:
 
 
 def _looks_like_builtin_brand(brand: str, source_type: str) -> NewProductSourceDefinition | None:
+    alias_source_key = BRAND_ALIAS_SOURCE_KEYS.get(brand.strip())
+    if alias_source_key:
+        aliased = next(
+            (source for source in SOURCE_DEFINITIONS if source.source_key == alias_source_key),
+            None,
+        )
+        if aliased and aliased.source_type == source_type:
+            return _clone_source(aliased)
+
     brand_key = _normalize_brand_key(brand)
     for source in SOURCE_DEFINITIONS:
         if source.source_type != source_type:
@@ -272,7 +306,26 @@ def _match_builtin_source_from_urls(
     return None
 
 
-def _detect_generic_board_news_source(
+async def _fetch_soup(client: httpx.AsyncClient, url: str) -> BeautifulSoup:
+    try:
+        response = await client.get(url, headers=REQUEST_HEADERS, follow_redirects=True)
+        response.raise_for_status()
+        return BeautifulSoup(response.text, "html.parser")
+    except httpx.HTTPError:
+        async with httpx.AsyncClient(
+            timeout=client.timeout,
+            follow_redirects=True,
+            verify=False,
+        ) as insecure_client:
+            insecure_response = await insecure_client.get(
+                url,
+                headers=REQUEST_HEADERS,
+            )
+        insecure_response.raise_for_status()
+        return BeautifulSoup(insecure_response.text, "html.parser")
+
+
+def _detect_generic_table_board_source(
     *,
     brand: str,
     source_type: str,
@@ -280,28 +333,76 @@ def _detect_generic_board_news_source(
     soup: BeautifulSoup,
     notes: list[str],
 ) -> NewProductSourceDefinition | None:
-    rows = soup.select(".board_wrap table tbody tr")
-    if not rows:
-        return None
-
+    selectors = (".board_wrap table tbody tr", "table tbody tr")
+    matched_selector = None
     first_valid_row = None
-    for row in rows[:5]:
-        cells = row.find_all("td")
-        if len(cells) < 4:
+
+    for selector in selectors:
+        rows = soup.select(selector)
+        if not rows:
             continue
-        title_link = cells[2].find("a", href=True)
-        title = title_link.get_text(" ", strip=True) if title_link else ""
-        date_text = cells[3].get_text(" ", strip=True)
-        if title and re.search(r"\d{4}[-.]\d{2}[-.]\d{2}", date_text):
-            first_valid_row = cells
+        for row in rows[:8]:
+            cells = row.find_all("td")
+            if len(cells) < 3:
+                continue
+            for title_idx in range(len(cells)):
+                link = cells[title_idx].find("a", href=True)
+                if not link:
+                    continue
+                date_candidates = [
+                    _normalize_text(cell.get_text(" ", strip=True))
+                    for cell in cells
+                ]
+                date_idx = next(
+                    (
+                        idx
+                        for idx, cell_text in enumerate(date_candidates)
+                        if re.search(r"(\d{2,4}[.-]\d{1,2}[.-]\d{1,2})", cell_text)
+                    ),
+                    None,
+                )
+                if date_idx is None:
+                    continue
+                matched_selector = selector
+                first_valid_row = {
+                    "cells": cells,
+                    "title_idx": title_idx,
+                    "date_idx": date_idx,
+                }
+                break
+            if first_valid_row:
+                break
+        if first_valid_row:
             break
 
-    if first_valid_row is None:
+    if not first_valid_row or not matched_selector:
         return None
 
-    date_sample = first_valid_row[3].get_text(" ", strip=True)
-    date_format = "dot" if "." in date_sample else "dash"
-    notes.append("게시판형 공식 소식 페이지를 탐지해 html_board_news_table parser를 적용했습니다.")
+    cells = first_valid_row["cells"]
+    title_idx = int(first_valid_row["title_idx"])
+    date_idx = int(first_valid_row["date_idx"])
+    title_text = _normalize_text(cells[title_idx].get_text(" ", strip=True))
+    date_sample = _normalize_text(cells[date_idx].get_text(" ", strip=True))
+    date_format = "short_dot" if re.search(r"\b\d{2}\.\d{2}\.\d{2}\b", date_sample) else (
+        "dot" if "." in date_sample else "dash"
+    )
+    category_idx = 1 if len(cells) >= 4 and title_idx != 1 and date_idx != 1 else None
+    notes.append("테이블형 공식 공지/뉴스 페이지를 탐지해 html_board_news_table parser를 적용했습니다.")
+
+    parser_config: dict[str, Any] = {
+        "row_selector": matched_selector,
+        "min_cell_count": len(cells),
+        "title_cell_index": title_idx,
+        "date_cell_index": date_idx,
+        "date_format": date_format,
+        "detail_link_selector": "a[href]",
+        "default_category": "신메뉴 소식",
+        "summary_fallback": "{brand} 공식 소식",
+        "detail_image_markers": ("/wp-content/uploads/", "/upload/", "/uploads/", "/files/"),
+        "max_items": 40,
+    }
+    if category_idx is not None:
+        parser_config["category_cell_index"] = category_idx
 
     return _build_admin_source_definition(
         brand=brand,
@@ -310,30 +411,198 @@ def _detect_generic_board_news_source(
         site_url=candidate_url,
         crawl_url=candidate_url,
         parser_type="html_board_news_table",
+        parser_config=parser_config,
+        discovery_metadata={
+            "detected_by": "html_board_news_table",
+            "matched_url": candidate_url,
+            "sample_title": title_text,
+        },
+    )
+
+
+def _detect_generic_board_news_source(
+    *,
+    brand: str,
+    source_type: str,
+    candidate_url: str,
+    soup: BeautifulSoup,
+    notes: list[str],
+) -> NewProductSourceDefinition | None:
+    return _detect_generic_table_board_source(
+        brand=brand,
+        source_type=source_type,
+        candidate_url=candidate_url,
+        soup=soup,
+        notes=notes,
+    )
+
+
+def _detect_generic_card_news_grid_source(
+    *,
+    brand: str,
+    source_type: str,
+    candidate_url: str,
+    soup: BeautifulSoup,
+    notes: list[str],
+) -> NewProductSourceDefinition | None:
+    items = soup.select(".board_list li")
+    if len(items) < 3:
+        return None
+
+    valid_items = 0
+    for item in items[:6]:
+        title = item.select_one(".doc_title")
+        date = item.select_one(".regdate")
+        link = item.select_one("a.doc_link[href]")
+        if title and date and link:
+            valid_items += 1
+
+    if valid_items < 3:
+        return None
+
+    notes.append("웹진형 공식 뉴스/이벤트 목록을 탐지해 html_card_news_grid parser를 적용했습니다.")
+    return _build_admin_source_definition(
+        brand=brand,
+        source_type=source_type,
+        channel="이벤트",
+        site_url=candidate_url,
+        crawl_url=candidate_url,
+        parser_type="html_card_news_grid",
         parser_config={
-            "row_selector": ".board_wrap table tbody tr",
-            "min_cell_count": 4,
-            "category_cell_index": 1,
-            "title_cell_index": 2,
-            "date_cell_index": 3,
-            "date_format": date_format,
-            "detail_link_selector": "a[href]",
-            "default_category": "신메뉴 소식",
-            "summary_fallback": "{brand} 공식 소식",
-            "detail_image_markers": ("/wp-content/uploads/",),
+            "item_selector": ".board_list li",
+            "detail_link_selector": "a.doc_link[href]",
+            "title_selector": ".doc_title",
+            "date_selector": ".regdate",
+            "date_format": "dash_datetime",
+            "image_selector": ".image_area img",
+            "default_category": "신메뉴 이벤트",
+            "summary_fallback": "{brand} 공식 이벤트",
             "max_items": 40,
         },
         discovery_metadata={
-            "detected_by": "html_board_news_table",
+            "detected_by": "html_card_news_grid",
             "matched_url": candidate_url,
         },
     )
 
 
-async def _fetch_soup(client: httpx.AsyncClient, url: str) -> BeautifulSoup:
-    response = await client.get(url, headers=REQUEST_HEADERS, follow_redirects=True)
-    response.raise_for_status()
-    return BeautifulSoup(response.text, "html.parser")
+def _detect_generic_event_card_list_source(
+    *,
+    brand: str,
+    source_type: str,
+    candidate_url: str,
+    soup: BeautifulSoup,
+    notes: list[str],
+) -> NewProductSourceDefinition | None:
+    items = soup.select(".event_list_wrapper li")
+    if len(items) < 3:
+        return None
+
+    valid_items = 0
+    for item in items[:6]:
+        title = item.select_one(".title")
+        date = item.select_one(".date")
+        anchor = item.find("a")
+        onclick = anchor.get("onclick", "") if anchor else ""
+        if title and date and re.search(r"view\.view\((\d+)\)", onclick):
+            valid_items += 1
+
+    if valid_items < 2:
+        return None
+
+    notes.append("카드형 공식 이벤트 목록을 탐지해 html_event_card_list parser를 적용했습니다.")
+    return _build_admin_source_definition(
+        brand=brand,
+        source_type=source_type,
+        channel="이벤트",
+        site_url=_get_root_url(candidate_url),
+        crawl_url=candidate_url,
+        parser_type="html_event_card_list",
+        parser_config={
+            "item_selector": ".event_list_wrapper li",
+            "title_selector": ".title",
+            "date_selector": ".date em, .date",
+            "date_format": "dot",
+            "image_selector": ".event_img img",
+            "onclick_pattern": r"view\.view\((?P<id>\d+)\)",
+            "detail_url_template": f"{_get_root_url(candidate_url)}/eventView?eventIdx={{external_id}}",
+            "default_category": "이벤트",
+            "summary_fallback": "{brand} 공식 이벤트",
+            "max_items": 40,
+            "allow_food_names_without_keyword": True,
+            "short_name_max_length": 18,
+        },
+        discovery_metadata={
+            "detected_by": "html_event_card_list",
+            "matched_url": candidate_url,
+        },
+    )
+
+
+def _detect_generic_media_event_list_source(
+    *,
+    brand: str,
+    source_type: str,
+    candidate_url: str,
+    soup: BeautifulSoup,
+    notes: list[str],
+) -> NewProductSourceDefinition | None:
+    selector_candidates = (
+        ".event ul > li",
+        ".event_wrap ul > li",
+        ".event-list ul > li",
+        ".board-event ul > li",
+    )
+    matched_selector = None
+    items = []
+
+    for selector in selector_candidates:
+        current_items = soup.select(selector)
+        if len(current_items) < 3:
+            continue
+
+        valid_items = 0
+        for item in current_items[:6]:
+            title = item.select_one(".event-text .t1, .event-text .title, .title .t1")
+            date = item.select_one(".event-text .t2, .date")
+            image = item.select_one(".figure img, img")
+            if title and date and image:
+                valid_items += 1
+
+        if valid_items < 3:
+            continue
+
+        matched_selector = selector
+        items = current_items
+        break
+
+    if not matched_selector or not items:
+        return None
+
+    notes.append("미디어형 공식 이벤트 목록을 탐지해 html_media_event_list parser를 적용했습니다.")
+    return _build_admin_source_definition(
+        brand=brand,
+        source_type=source_type,
+        channel="이벤트",
+        site_url=_get_root_url(candidate_url),
+        crawl_url=candidate_url,
+        parser_type="html_media_event_list",
+        parser_config={
+            "item_selector": matched_selector,
+            "detail_link_selector": ".figure a[href], .event-text a[href], a[href]",
+            "title_selector": ".event-text .t1, .event-text .title, .title .t1",
+            "date_selector": ".event-text .t2, .date",
+            "image_selector": ".figure img, img",
+            "date_format": "dot",
+            "default_category": "이벤트",
+            "summary_fallback": "{brand} 공식 이벤트",
+            "max_items": 40,
+        },
+        discovery_metadata={
+            "detected_by": "html_media_event_list",
+            "matched_url": candidate_url,
+        },
+    )
 
 
 async def discover_new_product_source(
@@ -405,6 +674,60 @@ async def discover_new_product_source(
                     notes=notes,
                 )
 
+            grid_notes: list[str] = []
+            generic_grid_source = _detect_generic_card_news_grid_source(
+                brand=normalized_brand,
+                source_type=source_type,
+                candidate_url=candidate_url,
+                soup=soup,
+                notes=grid_notes,
+            )
+            if generic_grid_source:
+                return DiscoveredNewProductSource(
+                    source=generic_grid_source,
+                    matched_url=candidate_url,
+                    official_site_url=candidate_url,
+                    confidence=0.76,
+                    search_queries=search_queries,
+                    notes=grid_notes,
+                )
+
+            event_notes: list[str] = []
+            generic_event_source = _detect_generic_event_card_list_source(
+                brand=normalized_brand,
+                source_type=source_type,
+                candidate_url=candidate_url,
+                soup=soup,
+                notes=event_notes,
+            )
+            if generic_event_source:
+                return DiscoveredNewProductSource(
+                    source=generic_event_source,
+                    matched_url=candidate_url,
+                    official_site_url=generic_event_source.site_url,
+                    confidence=0.78,
+                    search_queries=search_queries,
+                    notes=event_notes,
+                )
+
+            media_event_notes: list[str] = []
+            generic_media_event_source = _detect_generic_media_event_list_source(
+                brand=normalized_brand,
+                source_type=source_type,
+                candidate_url=candidate_url,
+                soup=soup,
+                notes=media_event_notes,
+            )
+            if generic_media_event_source:
+                return DiscoveredNewProductSource(
+                    source=generic_media_event_source,
+                    matched_url=candidate_url,
+                    official_site_url=generic_media_event_source.site_url,
+                    confidence=0.75,
+                    search_queries=search_queries,
+                    notes=media_event_notes,
+                )
+
             for internal_url in internal_links[:6]:
                 try:
                     internal_soup = await _fetch_soup(client, internal_url)
@@ -445,4 +768,58 @@ async def discover_new_product_source(
                         notes=internal_notes,
                     )
 
-    raise ValueError("지원 가능한 공식 신상 소스를 찾지 못했습니다. 현재는 공용 게시판형 또는 등록된 parser preset 위주로 자동 등록됩니다.")
+                internal_grid_notes: list[str] = []
+                generic_internal_grid_source = _detect_generic_card_news_grid_source(
+                    brand=normalized_brand,
+                    source_type=source_type,
+                    candidate_url=internal_url,
+                    soup=internal_soup,
+                    notes=internal_grid_notes,
+                )
+                if generic_internal_grid_source:
+                    return DiscoveredNewProductSource(
+                        source=generic_internal_grid_source,
+                        matched_url=internal_url,
+                        official_site_url=candidate_url,
+                        confidence=0.74,
+                        search_queries=search_queries,
+                        notes=internal_grid_notes,
+                    )
+
+                internal_event_notes: list[str] = []
+                generic_internal_event_source = _detect_generic_event_card_list_source(
+                    brand=normalized_brand,
+                    source_type=source_type,
+                    candidate_url=internal_url,
+                    soup=internal_soup,
+                    notes=internal_event_notes,
+                )
+                if generic_internal_event_source:
+                    return DiscoveredNewProductSource(
+                        source=generic_internal_event_source,
+                        matched_url=internal_url,
+                        official_site_url=generic_internal_event_source.site_url,
+                        confidence=0.76,
+                        search_queries=search_queries,
+                        notes=internal_event_notes,
+                    )
+
+                internal_media_event_notes: list[str] = []
+                generic_internal_media_event_source = _detect_generic_media_event_list_source(
+                    brand=normalized_brand,
+                    source_type=source_type,
+                    candidate_url=internal_url,
+                    soup=internal_soup,
+                    notes=internal_media_event_notes,
+                )
+                if generic_internal_media_event_source:
+                    return DiscoveredNewProductSource(
+                        source=generic_internal_media_event_source,
+                        matched_url=internal_url,
+                        official_site_url=generic_internal_media_event_source.site_url,
+                        confidence=0.73,
+                        search_queries=search_queries,
+                        notes=internal_media_event_notes,
+                    )
+
+    raise ValueError("지원 가능한 공식 신상 소스를 찾지 못했습니다. 현재는 등록된 parser preset, 테이블형 공지, 웹진형 뉴스, 카드형 이벤트, 미디어형 이벤트 페이지까지 자동 등록됩니다.")
