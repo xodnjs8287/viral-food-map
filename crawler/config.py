@@ -190,6 +190,11 @@ class Settings:
     NEW_PRODUCTS_LOOKBACK_DAYS: int = int(
         os.getenv("NEW_PRODUCTS_LOOKBACK_DAYS", "30")
     )
+    # 소스 수집 병렬도 — 동시에 fetch할 외부 사이트 수의 상한.
+    # 23개 소스를 순차 처리하면 수 분이 걸리므로 기본 5로 병렬화.
+    NEW_PRODUCTS_CONCURRENCY: int = int(
+        os.getenv("NEW_PRODUCTS_CONCURRENCY", "5")
+    )
     YOMECHU_ENRICH_BATCH_SIZE: int = int(
         os.getenv("YOMECHU_ENRICH_BATCH_SIZE", "100")
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 import json
 import logging
@@ -420,7 +421,12 @@ async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
         response = await client.get(url, headers=REQUEST_HEADERS)
         response.raise_for_status()
         return response.text
-    except httpx.HTTPError:
+    except httpx.HTTPError as exc:
+        # 일부 대상 사이트가 SSL 체인 문제를 가진 경우가 있어 verify=False로 재시도한다.
+        # 보안상 위험한 동작이므로 경고 로그로 가시화한다.
+        logger.warning(
+            "HTTP 에러로 verify=False 재시도 (url=%s): %s", url, exc
+        )
         async with httpx.AsyncClient(
             timeout=client.timeout,
             follow_redirects=True,
@@ -437,6 +443,27 @@ async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
 async def _fetch_soup(client: httpx.AsyncClient, url: str) -> BeautifulSoup:
     html = await _fetch_text(client, url)
     return BeautifulSoup(html, "html.parser")
+
+
+async def _safe_fetch_soup(
+    client: httpx.AsyncClient,
+    url: str | None,
+    *,
+    source_key: str | None = None,
+) -> BeautifulSoup | None:
+    """상세 페이지 fetch용 — 개별 실패가 소스 전체 크롤을 중단시키지 않도록 감싼다."""
+    if not url:
+        return None
+    try:
+        return await _fetch_soup(client, url)
+    except Exception as exc:
+        logger.warning(
+            "신상 상세 페이지 fetch 실패 (source=%s, url=%s): %s",
+            source_key or "?",
+            url,
+            exc,
+        )
+        return None
 
 
 def _extract_first_matching_image(
@@ -936,7 +963,9 @@ async def _crawl_html_board_news_table(
             if onclick_match:
                 detail_href = onclick_match.groupdict().get("href") or onclick_match.group(1)
                 detail_url = _build_absolute_url(source.site_url, detail_href)
-        detail_soup = await _fetch_soup(client, detail_url) if detail_url else None
+        detail_soup = await _safe_fetch_soup(
+            client, detail_url, source_key=source.source_key
+        )
         if not published_at and detail_soup:
             published_at = _extract_detail_published_at(detail_soup)
         if detail_date_required and not published_at:
@@ -1015,7 +1044,11 @@ async def _crawl_kfc_new_menu(
             continue
 
         detail_url = _build_absolute_url(source.site_url, item.get("href")) or source.site_url
-        detail_soup = await _fetch_soup(client, detail_url)
+        detail_soup = await _safe_fetch_soup(
+            client, detail_url, source_key=source.source_key
+        )
+        if detail_soup is None:
+            continue
         image_url = _extract_meta_image(detail_soup, base_url=detail_url) or _extract_first_matching_image(
             detail_soup,
             base_url=detail_url,
@@ -1186,7 +1219,9 @@ async def _crawl_html_visual_news_cards(
             source.site_url,
             detail_link.get("href") if detail_link else None,
         )
-        detail_soup = await _fetch_soup(client, detail_url) if detail_url else None
+        detail_soup = await _safe_fetch_soup(
+            client, detail_url, source_key=source.source_key
+        )
         published_at = _extract_detail_published_at(detail_soup)
         if detail_date_required and not published_at:
             continue
@@ -2172,43 +2207,39 @@ async def _crawl_mega_seasonal_menu(
     return products
 
 
+_PARSER_HANDLERS: dict[str, Any] = {
+    "emart24_fresh_food": _crawl_emart24_fresh_food,
+    "lotteeatz_launch_events": _crawl_lotteeatz_launch_events,
+    "paikdabang_news_table": _crawl_paikdabang_news,
+    "html_board_news_table": _crawl_html_board_news_table,
+    "html_card_news_grid": _crawl_html_card_news_grid,
+    "html_visual_news_cards": _crawl_html_visual_news_cards,
+    "html_event_card_list": _crawl_html_event_card_list,
+    "html_media_event_list": _crawl_html_media_event_list,
+    "kfc_new_menu": _crawl_kfc_new_menu,
+    "html_paged_new_menu": _crawl_html_paged_new_menu,
+    "html_badge_menu": _crawl_html_badge_menu,
+    "html_linked_menu_cards": _crawl_html_linked_menu_cards,
+    "mcdonalds_promotion": _crawl_mcdonalds_promotion,
+    "json_menu_feed": _crawl_json_menu_feed,
+    "json_event_feed": _crawl_json_event_feed,
+    "mega_seasonal_menu": _crawl_mega_seasonal_menu,
+}
+
+
 async def _crawl_source(
     client: httpx.AsyncClient,
     source: NewProductSourceDefinition,
 ) -> list[ParsedNewProduct]:
-    if source.parser_type == "emart24_fresh_food":
-        return await _crawl_emart24_fresh_food(client, source)
-    if source.parser_type == "lotteeatz_launch_events":
-        return await _crawl_lotteeatz_launch_events(client, source)
-    if source.parser_type == "paikdabang_news_table":
-        return await _crawl_paikdabang_news(client, source)
-    if source.parser_type == "html_board_news_table":
-        return await _crawl_html_board_news_table(client, source)
-    if source.parser_type == "html_card_news_grid":
-        return await _crawl_html_card_news_grid(client, source)
-    if source.parser_type == "html_visual_news_cards":
-        return await _crawl_html_visual_news_cards(client, source)
-    if source.parser_type == "html_event_card_list":
-        return await _crawl_html_event_card_list(client, source)
-    if source.parser_type == "html_media_event_list":
-        return await _crawl_html_media_event_list(client, source)
-    if source.parser_type == "kfc_new_menu":
-        return await _crawl_kfc_new_menu(client, source)
-    if source.parser_type == "html_paged_new_menu":
-        return await _crawl_html_paged_new_menu(client, source)
-    if source.parser_type == "html_badge_menu":
-        return await _crawl_html_badge_menu(client, source)
-    if source.parser_type == "html_linked_menu_cards":
-        return await _crawl_html_linked_menu_cards(client, source)
-    if source.parser_type == "mcdonalds_promotion":
-        return await _crawl_mcdonalds_promotion(client, source)
-    if source.parser_type == "json_menu_feed":
-        return await _crawl_json_menu_feed(client, source)
-    if source.parser_type == "json_event_feed":
-        return await _crawl_json_event_feed(client, source)
-    if source.parser_type == "mega_seasonal_menu":
-        return await _crawl_mega_seasonal_menu(client, source)
-    return []
+    handler = _PARSER_HANDLERS.get(source.parser_type)
+    if handler is None:
+        logger.warning(
+            "Unknown parser_type '%s' for source %s",
+            source.parser_type,
+            source.source_key,
+        )
+        return []
+    return await handler(client, source)
 
 
 def _build_source_payload(source: NewProductSourceDefinition) -> dict[str, Any]:
@@ -2521,36 +2552,54 @@ async def refresh_new_products(trigger: str = "scheduler") -> dict[str, Any]:
     _sync_code_defined_sources(started_at)
     runtime_sources = _load_runtime_sources()
 
+    concurrency = max(1, int(settings.NEW_PRODUCTS_CONCURRENCY))
+    semaphore = asyncio.Semaphore(concurrency)
     timeout = httpx.Timeout(30.0, connect=10.0)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        for source in runtime_sources:
-            try:
-                source_summary = await _refresh_single_source(
-                    client,
-                    source,
-                    started_at=started_at,
-                    trigger=trigger,
-                )
-            except Exception as exc:  # pragma: no cover - network instability
-                logger.exception(
-                    "New products source crawl failed: %s (%s)",
-                    source.source_key,
-                    source.title,
-                )
-                summary["failed_sources"].append(
-                    {
-                        "source_key": source.source_key,
-                        "title": source.title,
-                        "error": str(exc),
-                    }
-                )
-                continue
 
-            summary["sources"] += 1
-            summary["fetched_products"] += source_summary["fetched"]
-            summary["inserted_products"] += source_summary["inserted"]
-            summary["updated_products"] += source_summary["updated"]
-            summary["visible_products"] += source_summary["visible"]
-            summary["source_summaries"].append(source_summary)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async def _run_one(source: NewProductSourceDefinition) -> dict[str, Any]:
+            async with semaphore:
+                try:
+                    return {
+                        "ok": True,
+                        "source": source,
+                        "result": await _refresh_single_source(
+                            client,
+                            source,
+                            started_at=started_at,
+                            trigger=trigger,
+                        ),
+                    }
+                except Exception as exc:  # pragma: no cover - network instability
+                    logger.exception(
+                        "New products source crawl failed: %s (%s)",
+                        source.source_key,
+                        source.title,
+                    )
+                    return {"ok": False, "source": source, "error": str(exc)}
+
+        outcomes = await asyncio.gather(
+            *(_run_one(source) for source in runtime_sources)
+        )
+
+    for outcome in outcomes:
+        source = outcome["source"]
+        if not outcome["ok"]:
+            summary["failed_sources"].append(
+                {
+                    "source_key": source.source_key,
+                    "title": source.title,
+                    "error": outcome["error"],
+                }
+            )
+            continue
+
+        source_summary = outcome["result"]
+        summary["sources"] += 1
+        summary["fetched_products"] += source_summary["fetched"]
+        summary["inserted_products"] += source_summary["inserted"]
+        summary["updated_products"] += source_summary["updated"]
+        summary["visible_products"] += source_summary["visible"]
+        summary["source_summaries"].append(source_summary)
 
     return summary
