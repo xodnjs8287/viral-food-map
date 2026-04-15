@@ -391,11 +391,17 @@ def _is_recent_or_active(
     published_at: str | None,
     available_to: str | None = None,
 ) -> bool:
+    """'신상' 판정: 출시일 기준(published_at, 없으면 호출부가 available_from을 대입).
+
+    - 판매중 한정상품(available_to가 미래)은 기준일과 무관하게 True
+    - 출시 기준일이 전혀 없으면 False ('신상' 공식 정의: 출시일 30일 이내)
+    - 기준일이 NEW_PRODUCTS_LOOKBACK_DAYS 이내면 True
+    """
     if available_to and datetime.fromisoformat(available_to) >= datetime.now(timezone.utc):
         return True
 
     if not published_at:
-        return True
+        return False
 
     published_dt = datetime.fromisoformat(published_at)
     return (

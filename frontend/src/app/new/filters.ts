@@ -15,6 +15,9 @@ export const PERIOD_OPTIONS: Array<{ key: NewProductsPeriod; label: string }> = 
 
 export const SECTOR_OPTIONS = NEW_PRODUCT_SECTOR_OPTIONS;
 
+// 기본값 "30d"는 UI 노출 기간(출시일 기준 최근 30일).
+// 크롤러의 NEW_PRODUCTS_LOOKBACK_DAYS(수집 범위)와는 별개 개념이며
+// 우연히 같은 값일 뿐이다.
 export function normalizePeriod(period?: string): NewProductsPeriod {
   return PERIOD_OPTIONS.some((option) => option.key === period)
     ? (period as NewProductsPeriod)

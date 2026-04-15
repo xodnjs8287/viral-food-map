@@ -184,6 +184,9 @@ class Settings:
     NEW_PRODUCTS_INTERVAL_HOURS: int = int(
         os.getenv("NEW_PRODUCTS_INTERVAL_HOURS", "6")
     )
+    # 크롤러가 '신상'으로 판단하는 출시일 기준 범위(일).
+    # 프론트 /new 페이지의 기간 필터(PERIOD_OPTIONS)와는 별개 개념 —
+    # 이 값은 DB 저장 여부를 결정하고, 프론트 기간 필터는 저장된 데이터의 UI 노출 범위.
     NEW_PRODUCTS_LOOKBACK_DAYS: int = int(
         os.getenv("NEW_PRODUCTS_LOOKBACK_DAYS", "30")
     )

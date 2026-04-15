@@ -209,16 +209,13 @@ const getCachedVisibleNewProducts = unstable_cache(
       )
       .eq("status", "visible")
       .eq("is_food", true)
+      .eq("source_type", "franchise")
       .order("last_seen_at", { ascending: false })
-      .limit(300);
+      .limit(1000);
 
-    const rows = Array.isArray(data)
+    return Array.isArray(data)
       ? (data as unknown as NewProductQueryRow[])
       : [];
-
-    return rows.filter(
-      (product) => product.source_type === "franchise"
-    );
   },
   ["visible-new-products"],
   { revalidate: 300 }
