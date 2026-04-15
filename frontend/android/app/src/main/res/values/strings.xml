@@ -1,11 +1,27 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">요즘뭐먹</string>
     <string name="title_activity_main">요즘뭐먹</string>
     <string name="package_name">com.yozmeat.app</string>
     <string name="custom_url_scheme">com.yozmeat.app</string>
+
     <string name="shortcut_map">지도</string>
     <string name="shortcut_map_long">주변 판매처 지도</string>
     <string name="shortcut_report">제보</string>
     <string name="shortcut_report_long">판매처 제보하기</string>
+
+    <string name="widget_yomechu_name">요메추 바로실행</string>
+    <string name="widget_yomechu_description">홈을 열자마자 요메추 런처를 바로 펼칩니다.</string>
+    <string name="widget_yomechu_badge">오늘 뭐 먹지?</string>
+    <string name="widget_yomechu_title">요메추 바로실행</string>
+    <string name="widget_yomechu_subtitle">앱을 열자마자 근처 추천 런처를 바로 시작해 보세요.</string>
+    <string name="widget_yomechu_cta">지금 추천 열기</string>
+
+    <string name="widget_rankings_name">실시간 순위</string>
+    <string name="widget_rankings_description">지금 뜨는 음식 트렌드 순위를 홈 화면에서 바로 확인합니다.</string>
+    <string name="widget_rankings_title">실시간 순위</string>
+    <string name="widget_rankings_loading">업데이트 준비 중</string>
+    <string name="widget_rankings_updated">%1$s 기준</string>
+    <string name="widget_rankings_empty">실시간 순위를 곧 보여드릴게요.</string>
+    <string name="widget_rankings_meta">인기도 %1$d%% · 판매처 %2$d곳</string>
 </resources>

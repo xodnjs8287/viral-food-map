@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["X2YM45W49L.com.yozmeat.app"],
+        "paths": ["*"]
+      }
+    ]
+  }
+}

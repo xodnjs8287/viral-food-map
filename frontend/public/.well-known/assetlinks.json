@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.yozmeat.app",
+      "sha256_cert_fingerprints": [
+        "74:9B:1E:41:29:4F:BF:80:C7:16:B0:09:0B:FF:77:92:B2:BE:00:51:1B:55:C3:29:42:76:49:31:1F:45:DE:0E"
+      ]
+    }
+  }
+]
