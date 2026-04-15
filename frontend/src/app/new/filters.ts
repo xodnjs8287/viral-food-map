@@ -1,4 +1,4 @@
-import type { NewProductsPeriod } from "@/lib/new-products-server";
+import type { NewProductsPeriod } from "@/lib/new-products";
 import {
   NEW_PRODUCT_SECTOR_OPTIONS,
   getNewProductSectorLabel,

@@ -1,55 +1,36 @@
 import { unstable_cache } from "next/cache";
 
-import type { NewProduct, NewProductSource } from "./types";
-import type { NewProductSectorFilter, NewProductSectorKey } from "./new-product-taxonomy";
+import {
+  deriveNewProductsView,
+  type NewProductDisplayItem,
+  type NewProductDisplaySource,
+  type NewProductsPeriod,
+  type NewProductsViewData,
+} from "./new-products";
+import type { NewProductSectorFilter } from "./new-product-taxonomy";
 import { createServerSupabaseClient } from "./supabase-server";
 import {
   getNewProductBrandLabel,
   getNewProductSectorKey,
   getNewProductSectorLabel,
 } from "./new-product-taxonomy";
+import type { NewProduct, NewProductSource } from "./types";
 
-export type NewProductsPeriod = "1d" | "3d" | "7d" | "30d" | "all";
+export type {
+  NewProductBrandOption,
+  NewProductDisplayItem,
+  NewProductDisplaySource,
+  NewProductListItem,
+  NewProductsPeriod,
+  NewProductsViewData,
+} from "./new-products";
 
-export interface NewProductBrandOption {
-  key: string;
-  label: string;
-  count: number;
+export interface NewProductsPageData extends NewProductsViewData {
+  lastUpdated: string | null;
 }
 
-export interface NewProductListItem {
-  id: string;
-  name: string;
-  brand: string;
-  source_type: NewProduct["source_type"];
-  channel: string;
-  category: string | null;
-  summary: string | null;
-  image_url: string | null;
-  product_url: string | null;
-  published_at: string | null;
-  available_from: string | null;
-  available_to: string | null;
-  first_seen_at: string;
-  last_seen_at: string;
-  is_food: boolean;
-  is_limited: boolean;
-  status: NewProduct["status"];
-  source: NewProductSourceSummary | null;
-  effective_at: string;
-  filter_at: string | null;
-  date_label: "공개일" | "첫 수집";
-  brand_label: string;
-  sector_key: NewProductSectorKey;
-  sector_label: string;
-}
-
-export interface NewProductsPageData {
-  products: NewProductListItem[];
-  sectorCounts: Record<NewProductSectorKey, number>;
-  brandOptions: NewProductBrandOption[];
-  brandCount: number;
-  totalCount: number;
+export interface NewProductsCatalogData {
+  products: NewProductDisplayItem[];
   lastUpdated: string | null;
 }
 
@@ -59,16 +40,9 @@ interface NewProductsPageOptions {
   brand: string | null;
 }
 
-type NewProductSourceSummary = Pick<
+type NewProductSourceQueryRow = Pick<
   NewProductSource,
-  | "id"
-  | "source_key"
-  | "title"
-  | "brand"
-  | "source_type"
-  | "channel"
-  | "site_url"
-  | "discovery_metadata"
+  "title" | "brand" | "site_url" | "discovery_metadata"
 >;
 
 type NewProductQueryRow = Pick<
@@ -76,7 +50,6 @@ type NewProductQueryRow = Pick<
   | "id"
   | "name"
   | "brand"
-  | "source_type"
   | "channel"
   | "category"
   | "summary"
@@ -84,21 +57,11 @@ type NewProductQueryRow = Pick<
   | "product_url"
   | "published_at"
   | "available_from"
-  | "available_to"
   | "first_seen_at"
   | "last_seen_at"
-  | "is_food"
   | "is_limited"
-  | "status"
 > & {
-  source?: NewProductSourceSummary | null;
-};
-
-const PERIOD_DAYS: Record<Exclude<NewProductsPeriod, "all">, number> = {
-  "1d": 1,
-  "3d": 3,
-  "7d": 7,
-  "30d": 30,
+  source?: NewProductSourceQueryRow | null;
 };
 
 function getFilterDate(
@@ -119,22 +82,6 @@ function getDateLabel(
   return getFilterDate(product) ? "공개일" : "첫 수집";
 }
 
-function sortByEffectiveDateDesc(a: NewProductListItem, b: NewProductListItem) {
-  return (
-    new Date(b.effective_at).getTime() - new Date(a.effective_at).getTime()
-  );
-}
-
-function createEmptySectorCounts(): Record<NewProductSectorKey, number> {
-  return {
-    cafe: 0,
-    burger: 0,
-    pizza: 0,
-    sandwich: 0,
-    other: 0,
-  };
-}
-
 function getResolvedBrand(
   product: Pick<NewProduct, "brand"> & {
     source?: Pick<NewProductSource, "brand"> | null;
@@ -143,36 +90,35 @@ function getResolvedBrand(
   return product.source?.brand?.trim() || product.brand.trim();
 }
 
-function buildBrandOptions(products: NewProductListItem[]): NewProductBrandOption[] {
-  const counts = new Map<string, { label: string; count: number }>();
-
-  products.forEach((product) => {
-    const current = counts.get(product.brand);
-
-    if (current) {
-      current.count += 1;
-      return;
-    }
-
-    counts.set(product.brand, {
-      label: product.brand_label,
-      count: 1,
-    });
-  });
-
-  return Array.from(counts.entries())
-    .map(([key, value]) => ({
-      key,
-      label: value.label,
-      count: value.count,
-    }))
-    .sort((a, b) => {
-      if (b.count !== a.count) {
-        return b.count - a.count;
+function mapNewProductRow(product: NewProductQueryRow): NewProductDisplayItem {
+  const resolvedBrand = getResolvedBrand(product);
+  const sourceMetadata = product.source?.discovery_metadata;
+  const sectorKey = getNewProductSectorKey(resolvedBrand, sourceMetadata);
+  const source: NewProductDisplaySource | null = product.source
+    ? {
+        title: product.source.title,
+        site_url: product.source.site_url,
       }
+    : null;
 
-      return a.label.localeCompare(b.label, "ko-KR");
-    });
+  return {
+    id: product.id,
+    name: product.name,
+    brand: resolvedBrand,
+    channel: product.channel,
+    category: product.category,
+    summary: product.summary,
+    image_url: product.image_url,
+    product_url: product.product_url,
+    is_limited: product.is_limited,
+    source,
+    effective_at: getEffectiveDate(product),
+    filter_at: getFilterDate(product),
+    date_label: getDateLabel(product),
+    brand_label: getNewProductBrandLabel(resolvedBrand, sourceMetadata),
+    sector_key: sectorKey,
+    sector_label: getNewProductSectorLabel(sectorKey),
+  };
 }
 
 const getCachedVisibleNewProducts = unstable_cache(
@@ -190,7 +136,6 @@ const getCachedVisibleNewProducts = unstable_cache(
           "id",
           "name",
           "brand",
-          "source_type",
           "channel",
           "category",
           "summary",
@@ -198,13 +143,10 @@ const getCachedVisibleNewProducts = unstable_cache(
           "product_url",
           "published_at",
           "available_from",
-          "available_to",
           "first_seen_at",
           "last_seen_at",
-          "is_food",
           "is_limited",
-          "status",
-          "source:new_product_sources(id, source_key, title, brand, source_type, channel, site_url, discovery_metadata)",
+          "source:new_product_sources(title, brand, site_url, discovery_metadata)",
         ].join(", ")
       )
       .eq("status", "visible")
@@ -221,94 +163,25 @@ const getCachedVisibleNewProducts = unstable_cache(
   { revalidate: 300 }
 );
 
+export async function getNewProductsCatalogData(): Promise<NewProductsCatalogData> {
+  const rows = await getCachedVisibleNewProducts();
+
+  return {
+    products: rows.map(mapNewProductRow),
+    lastUpdated: rows[0]?.last_seen_at ?? null,
+  };
+}
+
 export async function getNewProductsPageData({
   period,
   sector,
   brand,
 }: NewProductsPageOptions): Promise<NewProductsPageData> {
-  const rows = await getCachedVisibleNewProducts();
-
-  if (rows.length === 0) {
-    return {
-      products: [],
-      sectorCounts: createEmptySectorCounts(),
-      brandOptions: [],
-      brandCount: 0,
-      totalCount: 0,
-      lastUpdated: null,
-    };
-  }
-
-  const now = Date.now();
-  const cutoffMs =
-    period === "all" ? null : now - PERIOD_DAYS[period] * 24 * 60 * 60 * 1000;
-
-  const mapped = rows
-    .map((product) => {
-      const resolvedBrand = getResolvedBrand(product);
-      const sourceMetadata = product.source?.discovery_metadata;
-      const sectorKey = getNewProductSectorKey(resolvedBrand, sourceMetadata);
-
-      return {
-        ...product,
-        source: product.source ?? null,
-        brand: resolvedBrand,
-        brand_label: getNewProductBrandLabel(resolvedBrand, sourceMetadata),
-        effective_at: getEffectiveDate(product),
-        filter_at: getFilterDate(product),
-        date_label: getDateLabel(product),
-        sector_key: sectorKey,
-        sector_label: getNewProductSectorLabel(sectorKey),
-      };
-    })
-    .filter((product) => {
-      if (cutoffMs === null) {
-        return true;
-      }
-
-      if (!product.filter_at) {
-        return false;
-      }
-
-      return new Date(product.filter_at).getTime() >= cutoffMs;
-    });
-
-  const sectorCounts = mapped.reduce((counts, product) => {
-    counts[product.sector_key] += 1;
-    return counts;
-  }, createEmptySectorCounts());
-
-  const filteredBySector =
-    sector === "all"
-      ? mapped
-      : mapped.filter((product) => product.sector_key === sector);
-
-  const brandOptions = sector === "all" ? [] : buildBrandOptions(filteredBySector);
-  const selectedBrand =
-    sector === "all" || !brand
-      ? null
-      : brandOptions.some((option) => option.key === brand)
-      ? brand
-      : null;
-
-  const products = filteredBySector
-    .filter((product) => {
-      if (!selectedBrand) {
-        return true;
-      }
-
-      return product.brand === selectedBrand;
-    })
-    .sort(sortByEffectiveDateDesc);
-
-  const brandCount = new Set(mapped.map((product) => product.brand)).size;
+  const { products, lastUpdated } = await getNewProductsCatalogData();
+  const view = deriveNewProductsView(products, { period, sector, brand });
 
   return {
-    products,
-    sectorCounts,
-    brandOptions,
-    brandCount,
-    totalCount: products.length,
-    lastUpdated: rows[0]?.last_seen_at ?? null,
+    ...view,
+    lastUpdated,
   };
 }

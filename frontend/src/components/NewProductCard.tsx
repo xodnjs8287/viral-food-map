@@ -3,7 +3,7 @@
 import Image from "next/image";
 
 import { shouldUseUnoptimizedImage } from "@/lib/image-optimization";
-import type { NewProductListItem } from "@/lib/new-products-server";
+import type { NewProductListItem } from "@/lib/new-products";
 
 interface NewProductCardProps {
   product: NewProductListItem;

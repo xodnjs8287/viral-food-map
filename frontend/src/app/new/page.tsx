@@ -1,21 +1,13 @@
-import Link from "next/link";
 import type { Metadata } from "next";
 
 import BottomNav from "@/components/BottomNav";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
-import type { NewProductSectorKey } from "@/lib/new-product-taxonomy";
 import { getNewProductsPageData } from "@/lib/new-products-server";
 import { buildMetadata } from "@/lib/seo";
 
 import NewProductsClient from "./NewProductsClient";
-import {
-  buildFilterHref,
-  normalizeBrand,
-  normalizePeriod,
-  normalizeSector,
-  SECTOR_OPTIONS,
-} from "./filters";
+import { normalizeBrand, normalizePeriod, normalizeSector } from "./filters";
 
 interface NewProductsPageProps {
   searchParams?: Promise<{
@@ -34,24 +26,6 @@ export const metadata: Metadata = buildMetadata({
   keywords: ["신상 음식", "프랜차이즈 신메뉴", "브랜드 신상", "신상 메뉴"],
 });
 
-function formatUpdatedAt(value: string | null) {
-  if (!value) {
-    return "방금";
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "방금";
-  }
-
-  return parsed.toLocaleString("ko-KR", {
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 export const revalidate = 300;
 
 export default async function NewProductsPage({
@@ -62,80 +36,22 @@ export default async function NewProductsPage({
   const sector = normalizeSector(resolvedSearchParams.sector);
   const brand = normalizeBrand(resolvedSearchParams.brand);
   const pageData = await getNewProductsPageData({ period, sector, brand });
-  const visibleSectorHighlights = SECTOR_OPTIONS.filter(
-    (
-      option
-    ): option is {
-      key: NewProductSectorKey;
-      label: string;
-    } => option.key !== "all" && pageData.sectorCounts[option.key] > 0
-  ).slice(0, 3);
 
   return (
     <>
       <Header />
 
       <main className="page-with-bottom-nav max-w-lg mx-auto px-4 py-4">
-        <section className="mb-6">
-          <div className="rounded-2xl bg-gradient-to-br from-purple-400 to-blue-400 px-6 py-6 text-white">
-            <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-white/90">
-              <span className="rounded-full bg-white/15 px-2.5 py-1">
-                공식 신상 {pageData.totalCount}개
-              </span>
-              <span className="rounded-full bg-white/15 px-2.5 py-1">
-                브랜드 {pageData.brandCount}곳
-              </span>
-              {visibleSectorHighlights.map((option) => (
-                <span
-                  key={option.key}
-                  className="rounded-full bg-white/15 px-2.5 py-1"
-                >
-                  {option.label} {pageData.sectorCounts[option.key]}개
-                </span>
-              ))}
-            </div>
-
-            <p className="mt-4 text-xl font-bold leading-snug">
-              프랜차이즈 신상,
-              <br />
-              업종과 브랜드별로 빠르게 확인
-            </p>
-
-            <p className="mt-2 text-sm leading-relaxed text-white/85">
-              공식 상품 페이지와 브랜드 채널에서 음식 위주 신상만 골라서
-              보여드립니다.
-            </p>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Link
-                href="/"
-                className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-primary shadow-sm transition-colors hover:bg-purple-50"
-              >
-                홈 트렌드 보기
-              </Link>
-              <Link
-                href={buildFilterHref("all", sector, brand)}
-                className="rounded-xl border border-white/30 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-              >
-                전체 기간 보기
-              </Link>
-            </div>
-
-            <p className="mt-4 text-xs text-white/80">
-              마지막 수집: {formatUpdatedAt(pageData.lastUpdated)}
-            </p>
-          </div>
-        </section>
-
         <NewProductsClient
           initialProducts={pageData.products}
-          totalCount={pageData.totalCount}
-          sectorCounts={pageData.sectorCounts}
-          brandOptions={pageData.brandOptions}
-          brandCount={pageData.brandCount}
-          period={period}
-          sector={sector}
-          brand={brand}
+          initialSectorCounts={pageData.sectorCounts}
+          initialBrandOptions={pageData.brandOptions}
+          initialBrandCount={pageData.brandCount}
+          initialTotalCount={pageData.totalCount}
+          initialLastUpdated={pageData.lastUpdated}
+          initialPeriod={period}
+          initialSector={sector}
+          initialBrand={pageData.selectedBrand}
         />
 
         <Footer />
