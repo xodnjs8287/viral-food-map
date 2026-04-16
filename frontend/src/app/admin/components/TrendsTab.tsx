@@ -228,6 +228,7 @@ export default function TrendsTab() {
                     type="text"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
+                    aria-label="새 트렌드 이름"
                     placeholder="트렌드 이름"
                     className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
                   />
@@ -262,6 +263,7 @@ export default function TrendsTab() {
                 <textarea
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
+                  aria-label="새 트렌드 설명"
                   placeholder="트렌드 설명..."
                   rows={2}
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 resize-none"
@@ -316,6 +318,7 @@ export default function TrendsTab() {
                         type="text"
                         value={editForm.name || ""}
                         onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                        aria-label="트렌드 이름"
                         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
                       />
                     </div>

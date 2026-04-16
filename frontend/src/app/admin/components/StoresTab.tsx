@@ -150,6 +150,7 @@ export default function StoresTab() {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          aria-label="판매처 검색"
           placeholder="판매처명, 트렌드명, 주소로 검색..."
           className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
         />
@@ -185,6 +186,7 @@ export default function StoresTab() {
                         type="text"
                         value={editForm.name || ""}
                         onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                        aria-label="판매처 이름"
                         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
                       />
                     </div>
@@ -194,6 +196,7 @@ export default function StoresTab() {
                         type="text"
                         value={editForm.address || ""}
                         onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                        aria-label="판매처 주소"
                         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
                       />
                     </div>
@@ -203,6 +206,7 @@ export default function StoresTab() {
                         type="text"
                         value={editForm.phone || ""}
                         onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                        aria-label="판매처 전화번호"
                         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
                       />
                     </div>
@@ -212,6 +216,7 @@ export default function StoresTab() {
                         type="text"
                         value={editForm.place_url || ""}
                         onChange={(e) => setEditForm({ ...editForm, place_url: e.target.value })}
+                        aria-label="판매처 Place URL"
                         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
                       />
                     </div>
@@ -223,6 +228,7 @@ export default function StoresTab() {
                         max="5"
                         step="0.1"
                         value={editForm.rating ?? ""}
+                        aria-label="판매처 평점"
                         onChange={(e) =>
                           setEditForm({
                             ...editForm,
@@ -237,6 +243,7 @@ export default function StoresTab() {
                         <input
                           type="checkbox"
                           checked={editForm.verified ?? false}
+                          aria-label="판매처 인증 여부"
                           onChange={(e) =>
                             setEditForm({ ...editForm, verified: e.target.checked })
                           }

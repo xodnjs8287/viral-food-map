@@ -297,6 +297,7 @@ export default function NewProductsTab() {
           <input
             value={brandInput}
             onChange={(event) => setBrandInput(event.target.value)}
+            aria-label="브랜드명 입력"
             placeholder="예: 맘스터치, 도미노피자"
             className="min-w-0 flex-1 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-900 outline-none transition-colors placeholder:text-gray-400 focus:border-primary"
           />

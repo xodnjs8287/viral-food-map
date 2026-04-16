@@ -370,6 +370,7 @@ export default function KeywordsTab() {
             value={newKeyword}
             onChange={(e) => setNewKeyword(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addKeyword()}
+            aria-label="새 키워드 입력"
             placeholder="새 키워드 입력..."
             className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           />

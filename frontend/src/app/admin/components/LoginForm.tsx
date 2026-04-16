@@ -40,6 +40,7 @@ export default function LoginForm({ onLogin }: { onLogin: (user: User) => void }
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            aria-label="이메일"
             placeholder="이메일"
             className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
             required
@@ -48,6 +49,7 @@ export default function LoginForm({ onLogin }: { onLogin: (user: User) => void }
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            aria-label="비밀번호"
             placeholder="비밀번호"
             className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
             required

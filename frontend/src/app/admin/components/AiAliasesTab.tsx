@@ -863,6 +863,7 @@ export default function AiAliasesTab() {
             type="text"
             value={aliasInput}
             onChange={(event) => setAliasInput(event.target.value)}
+            aria-label="별칭 입력"
             placeholder="별칭 예: 두바이 쫀득쿠키"
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           />
@@ -870,6 +871,7 @@ export default function AiAliasesTab() {
             type="text"
             value={canonicalInput}
             onChange={(event) => setCanonicalInput(event.target.value)}
+            aria-label="대표명 입력"
             placeholder="대표명 예: 두쫀쿠"
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           />
@@ -880,6 +882,7 @@ export default function AiAliasesTab() {
             step="0.01"
             value={confidenceInput}
             onChange={(event) => setConfidenceInput(event.target.value)}
+            aria-label="신뢰도 입력"
             placeholder="confidence 0~1"
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           />
@@ -918,6 +921,7 @@ export default function AiAliasesTab() {
             type="text"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            aria-label="동의어 캐시 검색"
             placeholder="alias 또는 대표명 검색"
             className="w-full max-w-xs rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           />

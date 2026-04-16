@@ -84,6 +84,7 @@ export default function TrendReviewsTab() {
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && fetchReviews()}
+            aria-label="트렌드 리뷰 키워드 검색"
             placeholder="키워드 검색..."
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           />

@@ -430,6 +430,7 @@ export default function AiReviewQueueTab() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             onKeyDown={(event) => event.key === "Enter" && void fetchRows()}
+            aria-label="AI 검토 큐 검색"
             placeholder="후보명 또는 사유 검색"
             className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
           />
