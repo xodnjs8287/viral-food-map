@@ -98,6 +98,35 @@ function getTodaySeoulDate() {
   return `${year}-${month}-${day}`;
 }
 
+function matchesAliasQuery(row: KeywordAliasRow, trimmedQuery: string) {
+  if (!trimmedQuery) {
+    return true;
+  }
+
+  return (
+    row.alias.toLowerCase().includes(trimmedQuery) ||
+    row.canonical_keyword.toLowerCase().includes(trimmedQuery)
+  );
+}
+
+function getDecisionBadge(decisionType: string | null) {
+  if (decisionType === "merge") {
+    return {
+      label: "묶기 저장",
+      className: "bg-green-50 text-green-700",
+    };
+  }
+
+  if (decisionType === "separate") {
+    return {
+      label: "분리 저장",
+      className: "bg-orange-50 text-orange-700",
+    };
+  }
+
+  return null;
+}
+
 async function saveAliasDecision(
   termA: string,
   termB: string,
@@ -274,16 +303,25 @@ export default function AiAliasesTab() {
     void fetchData();
   }, []);
 
-  const filteredAliases = useMemo(() => {
-    const trimmed = query.trim().toLowerCase();
-    const visible = aliases.filter((row) => row.decision_type !== "separate");
-    if (!trimmed) return visible;
-    return visible.filter(
-      (row) =>
-        row.alias.toLowerCase().includes(trimmed) ||
-        row.canonical_keyword.toLowerCase().includes(trimmed)
+  const trimmedQuery = query.trim().toLowerCase();
+
+  const cachedAliases = useMemo(() => {
+    return aliases.filter(
+      (row) => !row.decision_type && matchesAliasQuery(row, trimmedQuery)
     );
-  }, [aliases, query]);
+  }, [aliases, trimmedQuery]);
+
+  const savedAliases = useMemo(() => {
+    return aliases.filter(
+      (row) => Boolean(row.decision_type) && matchesAliasQuery(row, trimmedQuery)
+    );
+  }, [aliases, trimmedQuery]);
+
+  const cachedAliasCount = useMemo(() => {
+    return aliases.filter((row) => !row.decision_type).length;
+  }, [aliases]);
+
+  const savedAliasCount = aliases.length - cachedAliasCount;
 
   const usageByJob = useMemo(() => {
     return usageRows.reduce<Record<string, number>>((acc, row) => {
@@ -296,6 +334,86 @@ export default function AiAliasesTab() {
   const usedToday = usageRows.length;
   const remainingToday =
     dailyLimit === null ? null : Math.max(dailyLimit - usedToday, 0);
+
+  const renderAliasCard = (row: KeywordAliasRow) => {
+    const isBusy = decisionBusyId === `alias:${row.id}`;
+    const decisionBadge = getDecisionBadge(row.decision_type);
+
+    return (
+      <div
+        key={row.id}
+        className="flex flex-col gap-3 rounded-xl border border-gray-100 p-3"
+      >
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-gray-900">{row.alias}</span>
+              <span className="text-xs text-gray-300">→</span>
+              <span className="text-sm font-semibold text-primary">
+                {row.canonical_keyword}
+              </span>
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                {row.source_job}
+              </span>
+              {decisionBadge && (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${decisionBadge.className}`}
+                >
+                  {decisionBadge.label}
+                </span>
+              )}
+              {row.confidence !== null && (
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">
+                  {row.confidence.toFixed(2)}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-gray-400">
+              마지막 반영 {new Date(row.last_seen_at).toLocaleString("ko-KR")}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => loadAlias(row)}
+              className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-100"
+            >
+              불러오기
+            </button>
+            <button
+              onClick={() => void deleteAlias(row)}
+              className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-600"
+            >
+              삭제
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 md:flex-row">
+          <button
+            onClick={() => void resolveCachedAlias(row, "merge")}
+            disabled={isBusy}
+            className="rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-purple-600 disabled:opacity-50"
+          >
+            {isBusy ? "처리 중..." : `${row.alias} -> ${row.canonical_keyword} 묶기`}
+          </button>
+          <button
+            onClick={() => void resolveCachedAlias(row, "separate")}
+            disabled={isBusy}
+            className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50"
+          >
+            {isBusy ? "처리 중..." : "다른 상품으로 유지"}
+          </button>
+          <button
+            onClick={() => void resolveCachedAlias(row, "reverse")}
+            disabled={isBusy}
+            className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-50"
+          >
+            {isBusy ? "처리 중..." : `${row.canonical_keyword} -> ${row.alias} 뒤집기`}
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   const resetForm = () => {
     setAliasInput("");
@@ -526,7 +644,7 @@ export default function AiAliasesTab() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
         <div className="rounded-xl border border-gray-100 bg-white p-4">
           <p className="mb-1 text-xs text-gray-400">오늘 자동 AI 사용</p>
           <p className="text-2xl font-bold text-gray-900">{usedToday}</p>
@@ -547,9 +665,14 @@ export default function AiAliasesTab() {
           <p className="mt-1 text-xs text-gray-400">Asia/Seoul 날짜 기준</p>
         </div>
         <div className="rounded-xl border border-gray-100 bg-white p-4">
-          <p className="mb-1 text-xs text-gray-400">등록 alias</p>
-          <p className="text-2xl font-bold text-gray-900">{aliases.length}</p>
-          <p className="mt-1 text-xs text-gray-400">캐시/수동 등록 포함</p>
+          <p className="mb-1 text-xs text-gray-400">동의어 캐시</p>
+          <p className="text-2xl font-bold text-gray-900">{cachedAliasCount}</p>
+          <p className="mt-1 text-xs text-gray-400">미처리 AI 감지 결과</p>
+        </div>
+        <div className="rounded-xl border border-gray-100 bg-white p-4">
+          <p className="mb-1 text-xs text-gray-400">저장된 결정</p>
+          <p className="text-2xl font-bold text-gray-900">{savedAliasCount}</p>
+          <p className="mt-1 text-xs text-gray-400">관리자 묶기/분리 확정</p>
         </div>
         <div className="rounded-xl border border-gray-100 bg-white p-4">
           <p className="mb-1 text-xs text-gray-400">보류 대표명 제안</p>
@@ -781,9 +904,14 @@ export default function AiAliasesTab() {
       <div className="rounded-xl border border-gray-100 bg-white p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900">동의어 캐시</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-gray-900">동의어 캐시</h3>
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                {trimmedQuery ? `${cachedAliases.length}/${cachedAliasCount}` : cachedAliasCount}
+              </span>
+            </div>
             <p className="mt-1 text-xs text-gray-400">
-              자동 AI 판정 결과와 수동 등록을 함께 보여줍니다.
+              미처리 AI 감지 결과만 보여줍니다. 처리하면 아래 저장된 결정으로 이동합니다.
             </p>
           </div>
           <input
@@ -795,86 +923,39 @@ export default function AiAliasesTab() {
           />
         </div>
         <div className="mt-4 flex flex-col gap-2">
-          {filteredAliases.length === 0 ? (
-            <p className="py-8 text-center text-gray-400">표시할 alias가 없습니다.</p>
+          {cachedAliases.length === 0 ? (
+            <p className="py-8 text-center text-gray-400">
+              {trimmedQuery
+                ? "검색 조건에 맞는 캐시 alias가 없습니다."
+                : "표시할 캐시 alias가 없습니다."}
+            </p>
           ) : (
-            filteredAliases.map((row) => {
-              const isBusy = decisionBusyId === `alias:${row.id}`;
+            cachedAliases.map((row) => renderAliasCard(row))
+          )}
+        </div>
+      </div>
 
-              return (
-                <div
-                  key={row.id}
-                  className="flex flex-col gap-3 rounded-xl border border-gray-100 p-3"
-                >
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900">
-                          {row.alias}
-                        </span>
-                        <span className="text-xs text-gray-300">→</span>
-                        <span className="text-sm font-semibold text-primary">
-                          {row.canonical_keyword}
-                        </span>
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
-                          {row.source_job}
-                        </span>
-                        {row.confidence !== null && (
-                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">
-                            {row.confidence.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-gray-400">
-                        마지막 반영 {new Date(row.last_seen_at).toLocaleString("ko-KR")}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => loadAlias(row)}
-                        className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-100"
-                      >
-                        불러오기
-                      </button>
-                      <button
-                        onClick={() => void deleteAlias(row)}
-                        className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-600"
-                      >
-                        삭제
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2 md:flex-row">
-                    <button
-                      onClick={() => void resolveCachedAlias(row, "merge")}
-                      disabled={isBusy}
-                      className="rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-purple-600 disabled:opacity-50"
-                    >
-                      {isBusy
-                        ? "처리 중..."
-                        : `${row.alias} -> ${row.canonical_keyword} 묶기`}
-                    </button>
-                    <button
-                      onClick={() => void resolveCachedAlias(row, "separate")}
-                      disabled={isBusy}
-                      className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50"
-                    >
-                      {isBusy ? "처리 중..." : "다른 상품으로 유지"}
-                    </button>
-                    <button
-                      onClick={() => void resolveCachedAlias(row, "reverse")}
-                      disabled={isBusy}
-                      className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-50"
-                    >
-                      {isBusy
-                        ? "처리 중..."
-                        : `${row.canonical_keyword} -> ${row.alias} 뒤집기`}
-                    </button>
-                  </div>
-                </div>
-              );
-            })
+      <div className="rounded-xl border border-gray-100 bg-white p-4">
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-gray-900">저장된 동의어 결정</h3>
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+              {trimmedQuery ? `${savedAliases.length}/${savedAliasCount}` : savedAliasCount}
+            </span>
+          </div>
+          <p className="text-xs text-gray-400">
+            관리자가 확정한 묶기/분리 결정입니다. 필요하면 여기서 다시 뒤집거나 분리할 수 있습니다.
+          </p>
+        </div>
+        <div className="mt-4 flex flex-col gap-2">
+          {savedAliases.length === 0 ? (
+            <p className="py-8 text-center text-gray-400">
+              {trimmedQuery
+                ? "검색 조건에 맞는 저장된 결정이 없습니다."
+                : "저장된 동의어 결정이 없습니다."}
+            </p>
+          ) : (
+            savedAliases.map((row) => renderAliasCard(row))
           )}
         </div>
       </div>
