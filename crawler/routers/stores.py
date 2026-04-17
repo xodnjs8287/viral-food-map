@@ -10,7 +10,6 @@ from database import get_client
 from discord_reviews import ensure_report_review_message
 from error_reporting import report_exception_to_discord
 from franchise_checker import is_franchise
-from notifications import send_discord_message
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -26,28 +25,6 @@ class ReportRequest(BaseModel):
     lat: float | None = None
     lng: float | None = None
     note: str | None = None
-
-
-async def _send_report_debug_message(
-    *,
-    stage: str,
-    report_id: str | None,
-    trend_id: str | None,
-    store_name: str | None,
-    detail: str | None = None,
-) -> None:
-    lines = [
-        "[제보 디스코드 디버그]",
-        f"단계: {stage}",
-        f"report_id: {report_id or '-'}",
-        f"trend_id: {trend_id or '-'}",
-        f"store_name: {store_name or '-'}",
-    ]
-
-    if detail:
-        lines.append(f"상세: {detail}")
-
-    await send_discord_message("\n".join(lines))
 
 
 @router.get("")
@@ -75,14 +52,6 @@ async def submit_report(request: Request, report: ReportRequest):
     result = get_client().table("reports").insert(data).execute()
     inserted_id = (result.data or [{}])[0].get("id") if result.data else None
 
-    await _send_report_debug_message(
-        stage="report_inserted",
-        report_id=str(inserted_id) if inserted_id else None,
-        trend_id=report.trend_id,
-        store_name=report.store_name,
-        detail=f"lat={report.lat}, lng={report.lng}",
-    )
-
     if inserted_id:
         report_row = (
             get_client()
@@ -96,19 +65,7 @@ async def submit_report(request: Request, report: ReportRequest):
         )
         if report_row:
             try:
-                sync_result = await ensure_report_review_message(report_row[0])
-                await _send_report_debug_message(
-                    stage="report_review_sync",
-                    report_id=str(inserted_id),
-                    trend_id=str(report_row[0].get("trend_id") or report.trend_id),
-                    store_name=str(report_row[0].get("store_name") or report.store_name),
-                    detail=(
-                        "changed="
-                        f"{sync_result.get('changed')} "
-                        f"reason={sync_result.get('reason')} "
-                        f"message_id={sync_result.get('message_id')}"
-                    ),
-                )
+                await ensure_report_review_message(report_row[0])
             except Exception as exc:
                 logger.exception("Discord report review sync failed for report=%s", inserted_id)
                 await report_exception_to_discord(
@@ -120,22 +77,6 @@ async def submit_report(request: Request, report: ReportRequest):
                         "store_name": report.store_name,
                     },
                 )
-        else:
-            await _send_report_debug_message(
-                stage="report_row_missing",
-                report_id=str(inserted_id),
-                trend_id=report.trend_id,
-                store_name=report.store_name,
-                detail="insert 후 reports 재조회 결과가 비어 있습니다.",
-            )
-    else:
-        await _send_report_debug_message(
-            stage="report_insert_missing_id",
-            report_id=None,
-            trend_id=report.trend_id,
-            store_name=report.store_name,
-            detail="insert 응답에 id가 없습니다.",
-        )
     return {"message": "제보가 접수되었습니다", "data": result.data}
 
 
