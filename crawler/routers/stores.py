@@ -7,6 +7,7 @@ from slowapi.util import get_remote_address
 
 from auth import AdminUser, require_admin_user
 from database import get_client
+from discord_reviews import ensure_report_review_message
 from franchise_checker import is_franchise
 
 limiter = Limiter(key_func=get_remote_address)
@@ -20,6 +21,8 @@ class ReportRequest(BaseModel):
     trend_id: str
     store_name: str
     address: str
+    lat: float | None = None
+    lng: float | None = None
     note: str | None = None
 
 
@@ -40,10 +43,29 @@ async def submit_report(request: Request, report: ReportRequest):
         "trend_id": report.trend_id,
         "store_name": report.store_name,
         "address": report.address,
+        "lat": report.lat,
+        "lng": report.lng,
         "note": report.note,
         "status": "pending",
     }
     result = get_client().table("reports").insert(data).execute()
+    inserted_id = (result.data or [{}])[0].get("id") if result.data else None
+    if inserted_id:
+        report_row = (
+            get_client()
+            .table("reports")
+            .select("*, trends(name)")
+            .eq("id", inserted_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if report_row:
+            try:
+                await ensure_report_review_message(report_row[0])
+            except Exception:
+                logger.exception("Discord report review sync failed for report=%s", inserted_id)
     return {"message": "제보가 접수되었습니다", "data": result.data}
 
 

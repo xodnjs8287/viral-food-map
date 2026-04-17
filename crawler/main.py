@@ -14,6 +14,7 @@ from slowapi.util import get_remote_address
 from config import settings
 from error_reporting import install_recent_logs_handler, report_exception_to_discord
 from notifications import send_discord_message
+from routers.discord import router as discord_router
 from routers.instagram import router as instagram_router
 from routers.new_products import router as new_products_router
 from routers.stores import router as stores_router
@@ -145,6 +146,7 @@ app.add_middleware(
 
 app.include_router(trends_router)
 app.include_router(stores_router)
+app.include_router(discord_router)
 app.include_router(instagram_router)
 app.include_router(new_products_router)
 app.include_router(yomechu_router)

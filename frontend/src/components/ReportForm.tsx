@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { submitStoreReport } from "@/lib/crawler";
 import { supabase } from "@/lib/supabase";
 import type { Trend } from "@/lib/types";
 
@@ -43,6 +44,7 @@ export default function ReportForm({ initialTrends }: ReportFormProps) {
   const [submittedStoreName, setSubmittedStoreName] = useState("");
   const [showResults, setShowResults] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [trendsLoading, setTrendsLoading] = useState(initialTrends.length === 0);
   const [trendsError, setTrendsError] = useState<string | null>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -138,46 +140,53 @@ export default function ReportForm({ initialTrends }: ReportFormProps) {
     if (!trendId || !selected) return;
 
     setSubmitting(true);
+    setSubmitError(null);
 
     const address = selected.road_address_name || selected.address_name;
     const trendName = trends.find((t) => t.id === trendId)?.name ?? "";
     const storeName = selected.place_name;
 
-    const { data } = await supabase
-      .from("reports")
-      .insert({
+    try {
+      const response = await submitStoreReport({
         trend_id: trendId,
         store_name: storeName,
         address,
-        lat: parseFloat(selected.y),
-        lng: parseFloat(selected.x),
+        lat: Number.parseFloat(selected.y),
+        lng: Number.parseFloat(selected.x),
         note: note || null,
-        status: "pending",
-      })
-      .select("id");
+      });
+      const data = response.data;
 
-    if (data?.[0]?.id) {
-      const entry = {
-        id: data[0].id,
-        store_name: storeName,
-        trend_name: trendName,
-        status: "pending",
-        created_at: new Date().toISOString(),
-      };
-      const prev = JSON.parse(localStorage.getItem("my_reports") ?? "[]");
-      localStorage.setItem(
-        "my_reports",
-        JSON.stringify([entry, ...prev].slice(0, 20))
+      if (data?.[0]?.id) {
+        const entry = {
+          id: data[0].id,
+          store_name: storeName,
+          trend_name: trendName,
+          status: "pending",
+          created_at: new Date().toISOString(),
+        };
+        const prev = JSON.parse(localStorage.getItem("my_reports") ?? "[]");
+        localStorage.setItem(
+          "my_reports",
+          JSON.stringify([entry, ...prev].slice(0, 20))
+        );
+      }
+
+      setSubmittedStoreName(storeName);
+      setSubmitted(true);
+      setQuery("");
+      setSelected(null);
+      setNote("");
+      setTimeout(() => setSubmitted(false), 3000);
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "제보 접수 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
       );
+    } finally {
+      setSubmitting(false);
     }
-
-    setSubmitting(false);
-    setSubmittedStoreName(storeName);
-    setSubmitted(true);
-    setQuery("");
-    setSelected(null);
-    setNote("");
-    setTimeout(() => setSubmitted(false), 3000);
   };
 
   return (
@@ -341,6 +350,8 @@ export default function ReportForm({ initialTrends }: ReportFormProps) {
       >
         {submitting ? "제보 중..." : "제보하기"}
       </button>
+
+      {submitError && <p className="text-sm text-red-500">{submitError}</p>}
 
       {submitted && (
         <div className="fixed bottom-nav-floating-offset left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium animate-slide-up whitespace-nowrap">

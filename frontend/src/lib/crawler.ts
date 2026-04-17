@@ -249,6 +249,20 @@ export interface PublishInstagramFeedResponse {
   summary: InstagramPublishSummary;
 }
 
+export interface SubmitStoreReportPayload {
+  trend_id: string;
+  store_name: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  note: string | null;
+}
+
+export interface SubmitStoreReportResponse {
+  message: string;
+  data: Array<{ id: string }>;
+}
+
 export const YOMECHU_RADIUS_OPTIONS: YomechuOption<number>[] = [
   { label: "500m", value: 500 },
   { label: "1km", value: 1000 },
@@ -296,6 +310,30 @@ export function formatDistanceMeters(distanceM: number) {
 
 export function getCrawlerBaseUrl() {
   return CRAWLER_BASE_URL;
+}
+
+export async function submitStoreReport(
+  payload: SubmitStoreReportPayload
+): Promise<SubmitStoreReportResponse> {
+  if (!CRAWLER_BASE_URL) {
+    throw new Error("크롤러 API 주소가 설정되지 않았습니다.");
+  }
+
+  const response = await fetch(`${CRAWLER_BASE_URL}/api/stores/report`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await getCrawlerResponseErrorMessage(response, "제보 접수에 실패했습니다.")
+    );
+  }
+
+  return response.json();
 }
 
 export async function triggerTrendDetection(

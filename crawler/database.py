@@ -410,16 +410,66 @@ def upsert_ai_review_queue_entry(entry_data: dict[str, Any]):
             .data
             or []
         )
+        def _fetch_pending_row_by_id(row_id: str | None) -> dict[str, Any] | None:
+            if not row_id:
+                return None
+            rows = (
+                get_client()
+                .table("ai_review_queue")
+                .select("*")
+                .eq("id", row_id)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            return rows[0] if rows else None
+
+        def _fetch_pending_row_by_candidate(
+            item_type: str | None,
+            candidate_key: str | None,
+        ) -> dict[str, Any] | None:
+            if not item_type or not candidate_key:
+                return None
+            rows = (
+                get_client()
+                .table("ai_review_queue")
+                .select("*")
+                .eq("item_type", item_type)
+                .eq("candidate_key", candidate_key)
+                .eq("status", "pending")
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            return rows[0] if rows else None
+
         if existing_rows:
-            return (
+            result = (
                 get_client()
                 .table("ai_review_queue")
                 .update(payload)
                 .eq("id", existing_rows[0]["id"])
                 .execute()
             )
+            row = (result.data or [None])[0] or _fetch_pending_row_by_id(existing_rows[0]["id"])
+            if row is not None:
+                from discord_reviews import schedule_ai_review_message_sync
 
-        return get_client().table("ai_review_queue").insert(payload).execute()
+                schedule_ai_review_message_sync(row)
+            return result
+
+        result = get_client().table("ai_review_queue").insert(payload).execute()
+        row = (result.data or [None])[0] or _fetch_pending_row_by_candidate(
+            payload.get("item_type"),
+            payload.get("candidate_key"),
+        )
+        if row is not None:
+            from discord_reviews import schedule_ai_review_message_sync
+
+            schedule_ai_review_message_sync(row)
+        return result
     except Exception as exc:
         _warn_once(
             "ai_review_queue_upsert",

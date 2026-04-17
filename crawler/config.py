@@ -65,6 +65,13 @@ class Settings:
     YOUTUBE_API_KEY: str = os.getenv("YOUTUBE_API_KEY", "")
     KAKAO_REST_API_KEY: str = os.getenv("KAKAO_REST_API_KEY", "")
     DISCORD_WEBHOOK_URL: str = os.getenv("DISCORD_WEBHOOK_URL", "")
+    DISCORD_BOT_TOKEN: str = os.getenv("DISCORD_BOT_TOKEN", "")
+    DISCORD_PUBLIC_KEY: str = os.getenv("DISCORD_PUBLIC_KEY", "")
+    DISCORD_REVIEW_CHANNEL_ID: str = os.getenv("DISCORD_REVIEW_CHANNEL_ID", "")
+    DISCORD_REVIEW_ENABLED: bool = _env_bool(
+        "DISCORD_REVIEW_ENABLED",
+        default=False,
+    )
     INSTAGRAM_POSTING_ENABLED: bool = _env_bool(
         "INSTAGRAM_POSTING_ENABLED",
         default=False,
